@@ -1,5 +1,3 @@
-from abc import ABC
-
 import torch
 import pytorch_lightning as pl
 from typing import Optional, Union, Callable, Dict, Tuple, NewType, List
@@ -8,15 +6,15 @@ from typing import Optional, Union, Callable, Dict, Tuple, NewType, List
 Identifier = NewType('Identifier', Tuple[str, Optional[Union[str, int]], Dict])
 
 
-class BaseTrainerModule(pl.LightningModule, ABC):
+class BaseTrainerModule(pl.LightningModule):
     def __init__(self, model,
                  criterion: Optional[Union[Callable, None]] = None,
                  optimizer: Optional[Union[Identifier, List[Identifier]]] = None,
                  scheduler: Optional[Union[Identifier, List[Identifier]]] = None,
                  ):
         super().__init__()
-
         self.save_hyperparameters()
+        self.lr = 1e-4
         self.model = self.hparams.model
         self.criterion = self.hparams.criterion or torch.nn.MSELoss(reduction='none')
 
@@ -31,17 +29,17 @@ class BaseTrainerModule(pl.LightningModule, ABC):
     def training_step(self, batch, batch_idx, optimizer_idx=None):
         loss, _ = self(batch, batch_idx)
         result = pl.TrainResult(minimize=loss)
-        result.log('bidx', batch_idx, prog_bar=True, logger=False)
+        result.log('loss/train', loss, logger=True)
         return result
 
     def validation_step(self, batch, batch_idx) -> pl.EvalResult:
         loss, _ = self(batch, batch_idx)
         result = pl.EvalResult()
-        result.log('val_loss', loss, prog_bar=True)
+        result.log('loss/val', loss, logger=True)
         return result
 
     def configure_optimizers(self):
-        opt_class, opt_dict = torch.optim.Adam, dict()
+        opt_class, opt_dict = torch.optim.Adam, {'lr': self.lr}
         if self.hparams.optimizer:
             opt_class = getattr(torch.optim, self.hparams.optimizer[0])
             opt_dict = self.hparams.optimizer[-1]
