@@ -20,7 +20,7 @@ class BaseTrainerModule(pl.LightningModule):
 
     def forward(self, batch, batch_idx):
         inputs = batch["image"]
-        target_availabilities = batch["target_availabilities"]  # baseline also did unsqueeze(-1)
+        target_availabilities = batch["target_availabilities"].unsqueeze(-1)
         targets = batch["target_positions"]
         outputs = self.model(inputs).view(targets.shape)
         loss = (self.criterion(outputs, targets) * target_availabilities).mean()
