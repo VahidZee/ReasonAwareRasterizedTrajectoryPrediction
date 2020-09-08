@@ -5,6 +5,9 @@ from l5kit.visualization.utils import ARROW_LENGTH_IN_PIXELS, ARROW_THICKNESS_IN
 from l5kit.visualization import TARGET_POINTS_COLOR, draw_trajectory, PREDICTED_POINTS_COLOR
 from typing import Optional, Any
 
+from captum.attr import Saliency
+from captum.attr import visualization as viz
+
 
 def find_batch_extremes(batch, batch_loss, outputs, best_k=5, worst_k=5, require_grad=False):
     assert batch['track_id'].shape[0] == batch_loss.shape[0], 'batch and loss shape miss-match'
@@ -147,3 +150,81 @@ def draw_batch(rasterizer, batch: dict, outputs: Optional[torch.Tensor] = None,
         None if predicted_yaws is None else predicted_yaws[i], target_color, predicted_color) for i, image in
         enumerate(batch['image'])],
         dtype=np.uint8)
+
+def draw_sailiency_map(batch,saliency):
+    dictionary = {}
+    # print(batch['target_positions'].shape)
+    # print(batch['image'].shape)
+    print("here")
+    batch_num = batch['target_positions'].shape[0]
+    future_len = batch['target_positions'].shape[1]
+    raster_len = batch['image'].shape[1]
+    im = batch['image'].detach().numpy().transpose(0, 2, 3, 1)
+    half_way = int((raster_len-3)/2)
+    # print(half_way)
+    # for j in range(len(batch['target_positions'][0])):
+    for j in range(future_len):
+        print(j)
+        grads = saliency.attribute(batch['image'], target=2 * j)
+        gradsp = saliency.attribute(batch['image'], target=2 * j + 1)
+        # if j == 0  or j == future_len-1:
+        #     gradsm = (grads + gradsp) / 2
+        #     gradsm = np.transpose(gradsm.squeeze().cpu().detach().numpy(), (0,2, 3, 1))
+        #     for b in range(batch_num) :
+        #         print(b)
+        #         fig, axis = viz.visualize_image_attr(gradsm[b,:,:,0:1], im[b,:,:,0:1],
+        #                                                  method="blended_heat_map", sign="absolute_value",
+        #                                                  show_colorbar=True, title="Overlayed Gradient Magnitudes")
+        #         dictionary['plot_batchNum'+ str(b) + '_Future' + str(j * 2) + '_Raster' + str(0) ] = fig
+        #         fig, axis = viz.visualize_image_attr(gradsm[b, :, :, half_way:half_way+1], im[b, :, :, half_way:half_way+1],
+        #                                              method="blended_heat_map", sign="absolute_value",
+        #                                              show_colorbar=True, title="Overlayed Gradient Magnitudes")
+        #         dictionary['plot_batchNum' + str(b) + '_Future' + str(j * 2) + '_Raster' + str(half_way)] = fig
+        #         if gradsm.shape[3]-5> 0:
+        #             fig, axis = viz.visualize_image_attr(gradsm[b, :, :, half_way-1:half_way], im[b, :, :, half_way-1:half_way],
+        #                                                  method="blended_heat_map", sign="absolute_value",
+        #                                                  show_colorbar=True, title="Overlayed Gradient Magnitudes")
+        #             dictionary['plot_batchNum' + str(b) + '_Future' + str(j * 2) + '_Raster' + str(half_way-1)] = fig
+        #             fig, axis = viz.visualize_image_attr(gradsm[b, :, :, raster_len - 4:raster_len - 3],
+        #                                                  im[b, :, :, raster_len - 4:raster_len - 3],
+        #                                                  method="blended_heat_map", sign="absolute_value",
+        #                                                  show_colorbar=True, title="Overlayed Gradient Magnitudes")
+        #             dictionary['plot_batchNum' + str(b) + '_Future' + str(j * 2) + '_Raster' + str(raster_len-4)] = fig
+        #         fig, axis = viz.visualize_image_attr(gradsm[b,:,:,raster_len-3:raster_len], im[b,:,:,raster_len-3:raster_len],
+        #                                              method="blended_heat_map", sign="absolute_value",
+        #                                              show_colorbar=True, title="Overlayed Gradient Magnitudes")
+        #         dictionary['plot_batchNum'+ str(b) + '_Future' + str(j * 2) + '_RasterBackground' ] = fig
+        if j == 0:
+            grads_total = (grads + gradsp)
+        else:
+            grads_total += (grads + gradsp)
+    gradsm = grads_total / (2 * future_len)
+    gradsm = np.transpose(gradsm.squeeze().cpu().detach().numpy(), (0,2, 3, 1))
+    for b in range(batch_num):
+        fig, axis = viz.visualize_image_attr(gradsm[b, :, :, 0:1], im[b, :, :, 0:1],
+                                             method="blended_heat_map", sign="absolute_value",
+                                             show_colorbar=True, title="Overlayed Gradient Magnitudes",use_pyplot= False)
+        dictionary['plot_batchNum' + str(b) + '_FutureTotal_Raster' + str(0)] = fig
+        fig, axis = viz.visualize_image_attr(gradsm[b, :, :,half_way:half_way+1], im[b, :, :, half_way:half_way+1],
+                                             method="blended_heat_map", sign="absolute_value",
+                                             show_colorbar=True, title="Overlayed Gradient Magnitudes",use_pyplot= False)
+        dictionary['plot_batchNum' + str(b) + '_FutureTotal_Raster' + str(half_way)] = fig
+        if gradsm.shape[3] - 5 > 0:
+            fig, axis = viz.visualize_image_attr(gradsm[b, :, :, half_way-1:half_way],
+                                                 im[b, :, :, half_way-1:half_way],
+                                                 method="blended_heat_map", sign="absolute_value",
+                                                 show_colorbar=True, title="Overlayed Gradient Magnitudes",use_pyplot= False)
+            dictionary[
+                'plot_batchNum' + str(b) + '_FutureTotal_Raster' + str(half_way-1)] = fig
+            fig, axis = viz.visualize_image_attr(gradsm[b, :, :, raster_len - 4:raster_len - 3],
+                                                 im[b, :, :, raster_len - 4:raster_len - 3],
+                                                 method="blended_heat_map", sign="absolute_value",
+                                                 show_colorbar=True, title="Overlayed Gradient Magnitudes",use_pyplot= False)
+            dictionary[
+                'plot_batchNum' + str(b) + '_FutureTotal_Raster' + str(raster_len- 4)] = fig
+        fig, axis = viz.visualize_image_attr(gradsm[b, :, :, raster_len - 3:raster_len],
+                                             im[b, :, :, raster_len- 3:raster_len],
+                                             method="blended_heat_map", sign="absolute_value",
+                                             show_colorbar=True, title="Overlayed Gradient Magnitudes",use_pyplot= False)
+        dictionary['plot_batchNum' + str(b) + '_FutureTotal_RasterBackground'] = fig
+    return dictionary

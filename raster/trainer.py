@@ -1,10 +1,13 @@
 import torch
 import pytorch_lightning as pl
 from typing import Optional, Union, Callable, Dict, Tuple, NewType, List, Any
+
+from captum.attr import Saliency
+
 from .models import BaseResnet
 from l5kit.configs import load_config_data
-from .utils import find_batch_extremes, draw_batch, batch_stats
-
+from .utils import find_batch_extremes, draw_batch, batch_stats, draw_sailiency_map
+import numpy as np
 
 class BaseTrainerModule(pl.LightningModule):
     STATIC_HISTORY_THRESHOLD = 1.
@@ -30,6 +33,7 @@ class BaseTrainerModule(pl.LightningModule):
         self.visualize_interval = config['train_params'].get('visualize_interval', None)
         self.best_k, self.worst_k = config['train_params'].get('extreme_k', (5, 5))
         self.trajectory_stat_threshold = config['raster_params'].get('traj_stat_threshold', 3.)
+        self.saliency = Saliency(self.model)
 
     def forward(self, batch, batch_idx=None, apply_target_availabilities=False):
         inputs = batch["image"]
@@ -66,10 +70,10 @@ class BaseTrainerModule(pl.LightningModule):
         loss, _ = self(batch, batch_idx)
         mean_loss = loss.mean()
         result = pl.TrainResult(minimize=mean_loss)
-        result.log('loss/train', mean_loss, logger=True)
-        result.log_dict(
-            batch_stats(batch, self.trajectory_stat_threshold, 'data/train/'), logger=True,
-            reduce_fx=lambda x: sum(x) / len(x))
+        result.log('loss/train', mean_loss, logger=True, prog_bar=True)
+        # result.log_dict(
+        #     batch_stats(batch, self.trajectory_stat_threshold, 'data/train/'), logger=True,
+        #     reduce_fx=lambda x: sum(x) / len(x))
         return result
 
     # def on_validation_batch_start(self, batch: Any, batch_idx: int, dataloader_idx: int):
@@ -84,19 +88,24 @@ class BaseTrainerModule(pl.LightningModule):
             elif loop_name == 'train':
                 rasterizer = self.datamodule.train_data.rasterizer
             self.logger.experiment.add_images(
-                f'result/{loop_name}/best',
+                f'{loop_name}_best',
                 draw_batch(rasterizer=rasterizer, batch=best_batch, outputs=best_batch['outputs']))
             self.logger.experiment.add_images(
-                f'result/{loop_name}/worst',
+                f'{loop_name}_worst',
                 draw_batch(rasterizer=rasterizer, batch=worst_batch, outputs=worst_batch['outputs']))
-
+            figures = draw_sailiency_map(best_batch,self.saliency)
+            for key in figures:
+                self.logger.experiment.add_figure(f'{loop_name}_best/'+key,figures[key])
+            figures = draw_sailiency_map(worst_batch, self.saliency)
+            for key in figures:
+                self.logger.experiment.add_figure(f'{loop_name}_worst/' + key, figures[key])
     def validation_step(self, batch, batch_idx) -> pl.EvalResult:
         loss, outputs = self(batch, batch_idx)
         mean_loss = loss.mean()
         self.visualize_batch(batch, batch_idx, loss, outputs, 'val')
         result = pl.EvalResult()
-        result.log_dict(batch_stats(batch, self.trajectory_stat_threshold, 'data/val/'), logger=True,
-                        reduce_fx=lambda x: sum(x) / len(x))
+        # result.log_dict(batch_stats(batch, self.trajectory_stat_threshold, 'data/val/'), logger=True,
+        #                 reduce_fx=lambda x: sum(x) / len(x))
         result.log('loss/val', mean_loss, logger=True, prog_bar=True)
         return result
 
