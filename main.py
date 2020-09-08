@@ -5,11 +5,11 @@ import os
 
 if __name__ == '__main__':
     # initializing various parts
-    config = load_config_data(os.environ.get('config_path'))
-    datamodule = LyftDataModule(os.environ.get('dataset_path'), config)
+    config = load_config_data('./config.yaml')
+    datamodule = LyftDataModule(config['train_params'].get('datapath', '~/lyft/'), config)
     training_procedure = BaseTrainerModule(config)
     training_procedure.datamodule = datamodule
 
     # initializing training
-    trainer = pl.Trainer(gpus=os.environ.get('gpu_count'), max_epochs=5)
+    trainer = pl.Trainer(**config['train_params'].get('trainer', dict()))
     trainer.fit(training_procedure)

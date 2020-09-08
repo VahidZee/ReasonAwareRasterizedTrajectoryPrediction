@@ -3,7 +3,7 @@ import pytorch_lightning as pl
 from typing import Optional, Union, Callable, Dict, Tuple, NewType, List, Any
 from .models import BaseResnet
 from l5kit.configs import load_config_data
-from .utils import find_batch_extremes, draw_batch
+from .utils import find_batch_extremes, draw_batch, batch_stats
 
 
 class BaseTrainerModule(pl.LightningModule):
@@ -19,7 +19,7 @@ class BaseTrainerModule(pl.LightningModule):
         super().__init__()
         self.save_hyperparameters()
         self.config = config if isinstance(config, dict) else load_config_data(config)
-        self.lr = 1e-4
+        self.lr = config['train_params'].get('lr', 1e-4)
         self.model = model or BaseResnet(
             in_channels=(config["model_params"]["history_num_frames"] + 1) * 2 + 3,
             out_dim=2 * config["model_params"]["future_num_frames"],
@@ -27,8 +27,9 @@ class BaseTrainerModule(pl.LightningModule):
             pretrained=True,
         )
         self.criterion = torch.nn.MSELoss(reduction='none')
-        self.visualize_interval = 50
-        self.best_k, self.worst_k = 5, 5
+        self.visualize_interval = config['train_params'].get('visualize_interval', None)
+        self.best_k, self.worst_k = config['train_params'].get('extreme_k', (5, 5))
+        self.trajectory_stat_threshold = config['raster_params'].get('traj_stat_threshold', 3.)
 
     def forward(self, batch, batch_idx=None, apply_target_availabilities=False):
         inputs = batch["image"]
@@ -63,24 +64,40 @@ class BaseTrainerModule(pl.LightningModule):
 
     def training_step(self, batch, batch_idx, optimizer_idx=None):
         loss, _ = self(batch, batch_idx)
-        result = pl.TrainResult(minimize=loss.mean())
+        mean_loss = loss.mean()
+        result = pl.TrainResult(minimize=mean_loss)
+        result.log('loss/train', mean_loss, logger=True)
+        result.log_dict(
+            batch_stats(batch, self.trajectory_stat_threshold, 'data/train/'), logger=True,
+            reduce_fx=lambda x: sum(x) / len(x))
         return result
 
     # def on_validation_batch_start(self, batch: Any, batch_idx: int, dataloader_idx: int):
     #     return on_train_batch_start(batch, batch_idx, dataloader_idx)
 
     def visualize_batch(self, batch, batch_idx, loss, outputs, loop_name='val'):
-        if batch_idx % self.visualize_interval == 0:
+        if self.visualize_interval is not None and batch_idx % self.visualize_interval == 0:
             best_batch, worst_batch = find_batch_extremes(batch, loss, outputs, self.best_k, self.worst_k)
-            self.logger.experiment.add_images(f'result/{loop_name}/best', draw_batch(best_batch, outputs))
-            self.logger.experiment.add_images(f'result/{loop_name}/worst', draw_batch(worst_batch, outputs))
+            rasterizer = None
+            if loop_name == 'val':
+                rasterizer = self.datamodule.val_data.rasterizer
+            elif loop_name == 'train':
+                rasterizer = self.datamodule.train_data.rasterizer
+            self.logger.experiment.add_images(
+                f'result/{loop_name}/best',
+                draw_batch(rasterizer=rasterizer, batch=best_batch, outputs=best_batch['outputs']))
+            self.logger.experiment.add_images(
+                f'result/{loop_name}/worst',
+                draw_batch(rasterizer=rasterizer, batch=worst_batch, outputs=worst_batch['outputs']))
 
     def validation_step(self, batch, batch_idx) -> pl.EvalResult:
         loss, outputs = self(batch, batch_idx)
         mean_loss = loss.mean()
         self.visualize_batch(batch, batch_idx, loss, outputs, 'val')
         result = pl.EvalResult()
-        result.log('val_loss', mean_loss, logger=True, prog_bar=True)
+        result.log_dict(batch_stats(batch, self.trajectory_stat_threshold, 'data/val/'), logger=True,
+                        reduce_fx=lambda x: sum(x) / len(x))
+        result.log('loss/val', mean_loss, logger=True, prog_bar=True)
         return result
 
     def configure_optimizers(self):

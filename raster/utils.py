@@ -3,7 +3,7 @@ import numpy as np
 from l5kit.geometry import transform_points, transform_point
 from l5kit.visualization.utils import ARROW_LENGTH_IN_PIXELS, ARROW_THICKNESS_IN_PIXELS, ARROW_TIP_LENGTH_IN_PIXELS
 from l5kit.visualization import TARGET_POINTS_COLOR, draw_trajectory, PREDICTED_POINTS_COLOR
-from typing import Optional
+from typing import Optional, Any
 
 
 def find_batch_extremes(batch, batch_loss, outputs, best_k=5, worst_k=5, require_grad=False):
@@ -16,24 +16,60 @@ def find_batch_extremes(batch, batch_loss, outputs, best_k=5, worst_k=5, require
         best_batch = {key: value[best_idx] for key, value in batch.items()}
         best_batch['loss'] = best_loss
         best_batch['prediction'] = outputs[best_idx]
+        best_batch['outputs'] = outputs[best_idx]
         worst_batch = {key: value[worst_idx] for key, value in batch.items()}
         worst_batch['loss'] = worst_loss
         worst_batch['prediction'] = outputs[worst_idx]
+        worst_batch['outputs'] = outputs[worst_idx]
     return best_batch, worst_batch
 
 
-def trajectory_stat(history_positions: np.array, target_positions: np.array, centroid: np.array,
-                    world_to_image: np.array):
-    target_pixels = target_positions_pixels = transform_points(target_positions + centroid, world_to_image)
+def trajectory_stat(
+        history_positions: np.array,
+        target_positions: np.array,
+        centroid: np.array,
+        world_to_image: np.array,
+        threshold: Optional[float] = 3.,
+        prefix: Optional[Any] = 'data/'
+):
+    target_pixels = transform_points(target_positions + centroid, world_to_image)
+    target_pixels -= target_pixels[0]
+    target_change = target_pixels[np.argmax(np.abs(target_pixels[:, 1])), 1]
+    if np.abs(target_change) > threshold:
+        target = 'U' if target_change < 0. else 'D'
+    else:
+        target = 'S'
+
+    history_pixels = transform_points(history_positions + centroid, world_to_image)
+    history_pixels -= history_pixels[0]
+    history_change = history_pixels[np.argmax(np.abs(history_pixels[:, 1])), 1]
+    if np.abs(history_change) > threshold:
+        history = 'D' if history_change < 0. else 'U'
+    else:
+        history = 'S'
+
+    return f'{prefix}{history}{target}'
 
 
-def batch_stats(batch):
+def batch_stats(batch: dict, threshold: Optional[float] = 3., prefix: Optional[Any] = 'data/'):
+    """
+    Get a confusion statistic path directions in the batch.
+    :param batch: batch
+    :param threshold: manhattan distance threshold in pixels
+    :param prefix:
+    :return: confusion dictionary
+    """
     targets = batch["target_positions"]
-    batch_size = targets
+    batch_size = targets.shape[0]
+    result = {f'{prefix}{i}{j}': torch.zeros(1, dtype=torch.float32) for i in 'SUD' for j in 'SUD'}
     for hist, future, cent, wti in zip(batch['history_positions'], batch["target_positions"], batch['centroid'],
                                        batch['world_to_image']):
-        trajectory_stat(hist.cpu().data.numpy(), future.cpu().data.numpy(), cent.cpu().data.numpy(),
-                        wti.cpu().data.numpy())
+        result[trajectory_stat(hist.cpu().data.numpy(), future.cpu().data.numpy(), cent.cpu().data.numpy(),
+                               wti.cpu().data.numpy(), threshold, prefix)] += 1
+
+    for key in result:
+        result[key] /= batch_size
+    return result
 
 
 def _set_image_type(image: np.array):
@@ -80,14 +116,14 @@ def draw_single_image(
     """
     predicted_yaws = predicted_yaws or target_yaws
     im = _set_image_type(rasterizer.to_rgb(image.cpu().data.numpy().transpose(1, 2, 0)))  # Todo enhance
-    draw_trajectory(im, transform_points(target_positions.cpu().data.numpy() + centroid[:2].cpu().data.numpy(),
-                                         world_to_image.cpu().data.numpy()), target_yaws.cpu().data.numpy(),
-                    target_color)
+    draw_trajectory(im, transform_points(
+        target_positions.cpu().data.numpy() + centroid[:2].cpu().data.numpy(), world_to_image.cpu().data.numpy()),
+                    target_yaws.cpu().data.numpy(), target_color)
     if predicted_positions is not None:
-        draw_trajectory(im, transform_points(predicted_positions.cpu().data.numpy() + centroid[:2].cpu().data.numpy(),
-                                             world_to_image.cpu().data.numpy()), predicted_yaws.cpu().data.numpy(),
-                        predicted_color)
-    return np.uint8(im[::-1])
+        draw_trajectory(im, transform_points(
+            predicted_positions.cpu().data.numpy() + centroid[:2].cpu().data.numpy(),
+            world_to_image.cpu().data.numpy()), predicted_yaws.cpu().data.numpy(), predicted_color)
+    return np.uint8(im[::-1]).transpose(2, 0, 1)
 
 
 def draw_batch(rasterizer, batch: dict, outputs: Optional[torch.Tensor] = None,
