@@ -25,9 +25,13 @@ class LyftDataModule(LightningDataModule):
         self.data_manager = LocalDataManager(self.root_folder)
         self.rasterizer = build_rasterizer(self.config, self.data_manager)
         if stage == 'fit' or stage is None:
-            train_zarr = ChunkedDataset(self.data_manager.require(self.config['train_data_loader']['key'])).open()
+            train_zarr = ChunkedDataset(self.data_manager.require(self.config['train_data_loader']['key'])).open(
+                cache_size_bytes=int(15e9)
+            )
             self.train_data = AgentDataset(self.config, train_zarr, self.rasterizer)
-            val_zarr = ChunkedDataset(self.data_manager.require(self.config['val_data_loader']['key'])).open()
+            val_zarr = ChunkedDataset(self.data_manager.require(self.config['val_data_loader']['key'])).open(
+                cache_size_bytes=int(5e9)
+            )
             self.val_data = AgentDataset(self.config, val_zarr, self.rasterizer)
         if stage == 'test' or stage is None:
             pass  # no need to load the data separately
