@@ -3,7 +3,7 @@ import pytorch_lightning as pl
 from typing import Optional, Union, Callable, Dict, Tuple, NewType, List, Any
 from .models import BaseResnet
 from l5kit.configs import load_config_data
-
+from .utils import find_batch_extremes, draw_batch
 
 
 class BaseTrainerModule(pl.LightningModule):
@@ -27,6 +27,8 @@ class BaseTrainerModule(pl.LightningModule):
             pretrained=True,
         )
         self.criterion = torch.nn.MSELoss(reduction='none')
+        self.visualize_interval = 50
+        self.best_k, self.worst_k = 5, 5
 
     def forward(self, batch, batch_idx=None, apply_target_availabilities=False):
         inputs = batch["image"]
@@ -65,19 +67,21 @@ class BaseTrainerModule(pl.LightningModule):
         return result
 
     # def on_validation_batch_start(self, batch: Any, batch_idx: int, dataloader_idx: int):
-    #     return
+    #     return on_train_batch_start(batch, batch_idx, dataloader_idx)
+
+    def visualize_batch(self, batch, batch_idx, loss, outputs, loop_name='val'):
+        if batch_idx % self.visualize_interval == 0:
+            best_batch, worst_batch = find_batch_extremes(batch, loss, outputs, self.best_k, self.worst_k)
+            self.logger.experiment.add_images(f'result/{loop_name}/best', draw_batch(best_batch, outputs))
+            self.logger.experiment.add_images(f'result/{loop_name}/worst', draw_batch(worst_batch, outputs))
 
     def validation_step(self, batch, batch_idx) -> pl.EvalResult:
         loss, outputs = self(batch, batch_idx)
         mean_loss = loss.mean()
-
+        self.visualize_batch(batch, batch_idx, loss, outputs, 'val')
         result = pl.EvalResult()
         result.log('val_loss', mean_loss, logger=True, prog_bar=True)
         return result
-
-    def validation_epoch_end(self, outputs):
-        # print(outputs)
-        self.asghar = outputs
 
     def configure_optimizers(self):
         opt_class, opt_dict = torch.optim.Adam, {'lr': self.lr}

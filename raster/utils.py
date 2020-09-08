@@ -22,6 +22,20 @@ def find_batch_extremes(batch, batch_loss, outputs, best_k=5, worst_k=5, require
     return best_batch, worst_batch
 
 
+def trajectory_stat(history_positions: np.array, target_positions: np.array, centroid: np.array,
+                    world_to_image: np.array):
+    target_pixels = target_positions_pixels = transform_points(target_positions + centroid, world_to_image)
+
+
+def batch_stats(batch):
+    targets = batch["target_positions"]
+    batch_size = targets
+    for hist, future, cent, wti in zip(batch['history_positions'], batch["target_positions"], batch['centroid'],
+                                       batch['world_to_image']):
+        trajectory_stat(hist.cpu().data.numpy(), future.cpu().data.numpy(), cent.cpu().data.numpy(),
+                        wti.cpu().data.numpy())
+
+
 def _set_image_type(image: np.array):
     """
     Utility function to force the type of image pixels,
