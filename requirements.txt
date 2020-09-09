@@ -1,4 +1,7 @@
-pytorch-lightning==0.9
+pytorch-lightning
 l5kit
-torch==1.6
-torchvision==0.7
+torch
+torchvision
+captum
+numpy
+matplotlib
