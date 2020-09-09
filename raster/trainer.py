@@ -76,8 +76,7 @@ class BaseTrainerModule(pl.LightningModule):
         #     reduce_fx=lambda x: sum(x) / len(x))
         return result
 
-    # def on_validation_batch_start(self, batch: Any, batch_idx: int, dataloader_idx: int):
-    #     return on_train_batch_start(batch, batch_idx, dataloader_idx)
+
 
     def visualize_batch(self, batch, batch_idx, loss, outputs, loop_name='val'):
         if self.visualize_interval is not None and batch_idx % self.visualize_interval == 0:
@@ -103,10 +102,11 @@ class BaseTrainerModule(pl.LightningModule):
         loss, outputs = self(batch, batch_idx)
         mean_loss = loss.mean()
         self.visualize_batch(batch, batch_idx, loss, outputs, 'val')
-        result = pl.EvalResult()
+        result = pl.EvalResult(checkpoint_on=mean_loss)
         # result.log_dict(batch_stats(batch, self.trajectory_stat_threshold, 'data/val/'), logger=True,
         #                 reduce_fx=lambda x: sum(x) / len(x))
         result.log('loss/val', mean_loss, logger=True, prog_bar=True)
+        result.log('val_loss', mean_loss, prog_bar=True)
         return result
 
     def configure_optimizers(self):
