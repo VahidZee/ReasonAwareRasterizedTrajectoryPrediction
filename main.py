@@ -20,5 +20,5 @@ if __name__ == '__main__':
     training_procedure.datamodule = datamodule
 
     # initializing training
-    trainer = pl.Trainer(**config['train_params'].get('trainer', dict()))
+    trainer = pl.Trainer.from_argparse_args(args, **config.get('train_params', dict()).get('trainer', dict()))
     trainer.fit(training_procedure)

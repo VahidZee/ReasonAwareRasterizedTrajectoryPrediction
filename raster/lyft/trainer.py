@@ -11,6 +11,8 @@ from l5kit.configs import load_config_data
 from .utils import find_batch_extremes, draw_batch, saliency_map, filter_batch, batch_stats
 from argparse import ArgumentParser
 
+from .data.module import LyftDataModule
+
 
 class LyftTrainerModule(pl.LightningModule, ABC):
     def __init__(

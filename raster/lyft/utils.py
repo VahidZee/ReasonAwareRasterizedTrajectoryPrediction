@@ -97,7 +97,7 @@ def batch_stats(batch: dict, targets: Optional[torch.Tensor] = None, threshold: 
     for hist, future, cent, wti in zip(batch['history_positions'], targets, batch['centroid'],
                                        batch['world_to_image']):
         temp = trajectory_stat(hist.cpu().data.numpy(), future.cpu().data.numpy(), cent.cpu().data.numpy(),
-                               wti.cpu().data.numpy(), threshold, prefix)
+                               wti.cpu().data.numpy(), threshold, prefix, matrix=matrix)
         if matrix:
             result[temp[0]][temp[1]] += 1
         else:
