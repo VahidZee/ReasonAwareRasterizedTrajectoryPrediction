@@ -153,4 +153,5 @@ class ValidateModel:
         self.plot_scatter(df, 'loss', 'speed')
         self.plot_scatter(df, 'pred_speed', 'speed')
         self.plot_scatter(df, 'pred_turn', 'turn')
+        self.plot_type_confusion(df)
         return df
