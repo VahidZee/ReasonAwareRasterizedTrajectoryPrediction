@@ -85,7 +85,7 @@ class ValidateModel:
 
     def plot_scatter(self, df: pd.DataFrame, x_axis: str, y_axis: str):
         scatter = sns.FacetGrid(df, col="type", row="kind", height=5)
-        scatter.map(sns.regplot, x=x_axis, y=y_axis, data=df, scatter_kws={'alpha': 0.1},
+        scatter.map(sns.regplot, x_axis, y_axis, df, scatter_kws={'alpha': 0.1},
                     line_kws={'color': 'red'})
         scatter.add_legend()
         scatter.savefig(f"{self.output_root}/plot-scatter-{x_axis}-{y_axis}")
