@@ -27,7 +27,8 @@ def trajectory_stat(
 
 
 def traj_stat(traj: dict, predicted_targets=None) -> Tuple[np.array, np.array, np.array]:
-    return trajectory_stat(traj['history_positions'], predicted_targets or traj['target_positions'],
+    targets = predicted_targets if predicted_targets is not None else traj['target_positions']
+    return trajectory_stat(traj['history_positions'], targets,
                            traj['centroid'], traj['world_to_image'])
 
 

@@ -30,9 +30,11 @@ def filter_batch(batch: dict, filter_static_history: float):
     return idxs.sum().data
 
 
-def find_batch_extremes(batch, batch_loss, outputs, k=5, require_grad=False):
+def find_batch_extremes(batch, batch_loss, outputs, k=5, require_grad=False, to_tensor=False):
     assert batch['track_id'].shape[0] == batch_loss.shape[0], 'batch and loss shape miss-match'
     assert batch['track_id'].shape[0] == outputs.shape[0], 'batch and outputs shape miss-match'
+    if to_tensor:
+        batch = {key: torch.from_numpy(value).to(batch_loss.device) for key, value in batch.items()}
     with torch.set_grad_enabled(require_grad):
         worst_loss, worst_idx = torch.topk(batch_loss, min(k, batch_loss.shape[0]))
         best_loss, best_idx = torch.topk(batch_loss, min(k, batch_loss.shape[0]), largest=False)
@@ -191,26 +193,34 @@ def saliency_map(
         batch: dict,
         saliency: Saliency,
         sign: str = 'all',
-        method: str = 'blended_heat_map') -> Tuple[Any, torch.Tensor]:
+        method: str = 'blended_heat_map',
+        use_pyplot: bool = False,
+) -> Tuple[Any, torch.Tensor]:
     """
     :param batch: batch to visualise
     :param saliency: Saliency object initialised for trainer_module
     :param sign: sign of gradient attributes to visualise
     :param method: method of visualization to be used
+    :param use_pyplot: whether to use pyplot
     :return: pair of figure and corresponding gradients tensor
     """
 
     batch['image'].requires_grad = True
     grads = saliency.attribute(batch['image'], abs=False, additional_forward_args=(
-        batch['target_positions'], batch['target_availabilities'], False))
+        batch['target_positions'], None if 'target_availabilities' not in batch else batch['target_availabilities'],
+        False))
     batch['image'].requires_grad = False
-
-    gradsm = np.transpose(grads.squeeze().cpu().detach().numpy(), (0, 2, 3, 1))
+    gradsm = grads.squeeze().cpu().detach().numpy()
+    if len(gradsm.shape) == 3:
+        gradsm = gradsm.reshape(1, *gradsm.shape)
+    gradsm = np.transpose(gradsm, (0, 2, 3, 1))
     im = batch['image'].detach().cpu().numpy().transpose(0, 2, 3, 1)
     fig, axis = plt.subplots(1, im.shape[0], dpi=200, figsize=(6, 6))
     fig.set_tight_layout(True)
     for b in range(im.shape[0]):
         viz.visualize_image_attr(
-            gradsm[b, :, :, :], im[b, :, :, :], method="blended_heat_map", sign=sign,
-            use_pyplot=False, plt_fig_axis=(fig, axis[b]), )
+            gradsm[b, :, :, :], im[b, :, :, :], method=method, sign=sign,
+            use_pyplot=use_pyplot, plt_fig_axis=(fig, axis if im.shape[0] == 1 else axis[b]), )
+        if 'loss' in batch:
+            (axis if im.shape[0] == 1 else axis[b]).set_title(f'loss: {batch["loss"][b].detach().cpu()}')
     return fig, grads
