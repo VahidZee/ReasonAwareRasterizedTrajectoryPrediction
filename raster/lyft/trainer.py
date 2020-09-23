@@ -6,6 +6,7 @@ from typing import Optional, Union
 
 from captum.attr import Saliency
 from raster.models import BaseResnet
+from raster.models import MobilenetV2
 from raster.utils import str2bool
 from l5kit.configs import load_config_data
 from .utils import find_batch_extremes, draw_batch, saliency_map, filter_batch, batch_stats
@@ -33,12 +34,23 @@ class LyftTrainerModule(pl.LightningModule, ABC):
         self.lr = config['train_params'].get('lr', 1e-4)
         self.optimizer = optimizer
         self.scheduler = scheduler
-        self.model = model or BaseResnet(
-            in_channels=(config["model_params"]["history_num_frames"] + 1) * 2 + 3,
-            out_dim=2 * config["model_params"]["future_num_frames"],
-            model_type=config['model_params']['model_architecture'],
-            pretrained=True,
-        )
+        if model:
+            # print('None')
+            self.model = model
+        elif config["model_params"]["model_architecture"] == 'mobilenet':
+            # print('mobilenet')
+            self.model = MobilenetV2(
+                in_channels=(config["model_params"]["history_num_frames"] + 1) * 2 + 3,
+                out_dim=2 * config["model_params"]["future_num_frames"],
+                pretrained=True, )
+        else:
+            # print('resnet')
+            self.model = BaseResnet(
+                in_channels=(config["model_params"]["history_num_frames"] + 1) * 2 + 3,
+                out_dim=2 * config["model_params"]["future_num_frames"],
+                model_type=config['model_params']['model_architecture'],
+                pretrained=True,
+            )
         self.criterion = lambda x, y: torch.square((x - y).view(x.shape[0], -1)).mean(1)
         self.visualize_interval = visualization_interval
         self.extreme_k = extreme_k
