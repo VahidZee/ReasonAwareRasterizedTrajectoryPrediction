@@ -91,7 +91,9 @@ def saliency_map(
         sign: str = 'all',
         method: str = 'blended_heat_map',
         use_pyplot: bool = False,
-        fig_axis: tuple = None
+        fig_axis: tuple = None,
+        mix_bg: bool = True,
+        alpha_overlay: float = 0.7,
 ) -> Tuple[Any, torch.Tensor]:
     """
     :param batch: batch to visualise
@@ -99,6 +101,7 @@ def saliency_map(
     :param sign: sign of gradient attributes to visualise
     :param method: method of visualization to be used
     :param use_pyplot: whether to use pyplot
+    :param mix_bg: whether to mix semantic/aerial map with vehicles
     :return: pair of figure and corresponding gradients tensor
     """
 
@@ -112,15 +115,33 @@ def saliency_map(
         gradsm = gradsm.reshape(1, *gradsm.shape)
     gradsm = np.transpose(gradsm, (0, 2, 3, 1))
     im = batch['image'].detach().cpu().numpy().transpose(0, 2, 3, 1)
-    fig, axis = fig_axis if fig_axis is not None else plt.subplots(1, im.shape[0], dpi=200, figsize=(6, 6))
+    fig, axis = fig_axis if fig_axis is not None else plt.subplots(2 - mix_bg, im.shape[0], dpi=200, figsize=(6, 6))
     fig.set_tight_layout(True)
     for b in range(im.shape[0]):
-        viz.visualize_image_attr(
-            gradsm[b, :, :, :], im[b, :, :, :], method=method, sign=sign,
-            use_pyplot=use_pyplot, plt_fig_axis=(fig, axis if im.shape[0] == 1 else axis[b]), )
-        grad_norm = float(np.linalg.norm(gradsm[b, ...]))
-        (axis if im.shape[0] == 1 else axis[b]).set_title(f'grad: {grad_norm}')
-        (axis if im.shape[0] == 1 else axis[b]).axis('off')
+        if mix_bg:
+            grad_norm = float(np.abs(gradsm[b, ...]).sum())
+            viz.visualize_image_attr(
+                gradsm[b, ...], im[b, ...], method=method,
+                sign=sign, use_pyplot=use_pyplot,
+                plt_fig_axis=(fig, axis if im.shape[0] == 1 else axis[b]),
+                alpha_overlay=alpha_overlay,
+                title=f'l1 grad: {grad_norm:.5f}',
+            )
+            ttl = (axis if im.shape[0] == 1 else axis[b]).title
+            ttl.set_position([.5, 0.95])
+            (axis if im.shape[0] == 1 else axis[b]).axis('off')
+        else:
+            for (s_channel, end_channel), row in [((im.shape[-1] - 3, im.shape[-1]), 0), ((0, im.shape[-1] - 3), 1)]:
+                grad_norm = float(np.abs(gradsm[b, :, :, s_channel:end_channel]).sum())
+                viz.visualize_image_attr(
+                    gradsm[b, :, :, s_channel:end_channel], im[b, :, :, s_channel:end_channel], method=method,
+                    sign=sign, use_pyplot=use_pyplot,
+                    plt_fig_axis=(fig, axis[row] if im.shape[0] == 1 else axis[row][b]),
+                    alpha_overlay=alpha_overlay, title=f'l1 grad: {grad_norm:.5f}',
+                )
+                ttl = (axis[row] if im.shape[0] == 1 else axis[row][b]).title
+                ttl.set_position([.5, 0.95])
+                (axis[row] if im.shape[0] == 1 else axis[row][b]).axis('off')
     return fig, grads
 
 
@@ -133,7 +154,8 @@ def draw_occlusion(
         method: str = 'blended_heat_map',
         use_pyplot: bool = False,
         outlier_perc: float = 2.,
-        fig_axis: tuple = None
+        fig_axis: tuple = None,
+        alpha_overlay: float = 0.7
 ):
     batch['image'].requires_grad = True
     strides = (batch['image'].shape[2] // stride[0], batch['image'].shape[3] // stride[1])
@@ -156,18 +178,17 @@ def draw_occlusion(
         viz.visualize_image_attr(
             gradsm[b, :, :, :], im[b, :, :, :], method=method, sign=sign,
             use_pyplot=use_pyplot, plt_fig_axis=(fig, axis if im.shape[0] == 1 else axis[b]),
-            outlier_perc=outlier_perc)
-        grad_norm = float(np.linalg.norm(gradsm[b, ...]))
+            outlier_perc=outlier_perc, alpha_overlay=alpha_overlay)
         (axis if im.shape[0] == 1 else axis[b]).axis('off')
     return fig, grads
 
 
 def visualize_batch(
         batch, rasterizer=None, output_positions=None, title: str = '', output_root: str = None,
-        occlusion: Occlusion = None, saliency: Saliency = None,
+        occlusion: Occlusion = None, saliency: Saliency = None, mix_bg=False,
         occlusion_options: dict = dict(), saliency_options: dict = dict(),
         wspace: float = 0.1, hspace: float = 0.1, unit_size: float = 1.5, title_size: int = 6, subtitle_size: int = 4,
-        dpi: int = 200,
+        dpi: int = 200, alpha_overlay: float = 0.7
 ):
     prediction_position = None if 'outputs' not in batch else batch['outputs']
     prediction_position = output_positions if output_positions is not None else prediction_position
@@ -175,7 +196,7 @@ def visualize_batch(
     if title_size is not None and title:
         plt.rc('axes', titlesize=subtitle_size)
 
-    rows_count = sum([rasterizer is not None, occlusion is not None, saliency is not None])
+    rows_count = sum([rasterizer is not None, (occlusion is not None), (saliency is not None) * (2 - mix_bg)])
     fig, rows = plt.subplots(
         rows_count, batch['image'].shape[0],
         figsize=((unit_size + wspace + hspace) * batch['image'].shape[0],
@@ -196,9 +217,10 @@ def visualize_batch(
         fig.suptitle(f'{title}', fontsize=title_size)
 
     if saliency is not None:
-        axis = rows if rows_count == 1 else rows[i]
-        fig, _ = saliency_map(batch, saliency, use_pyplot=False, fig_axis=(fig, axis), **saliency_options)
-        i += 1
+        axis = rows if rows_count == 1 else rows[i] if mix_bg else (rows[i], rows[i + 1])
+        fig, _ = saliency_map(batch, saliency, use_pyplot=False, fig_axis=(fig, axis),
+                              mix_bg=mix_bg, alpha_overlay=alpha_overlay, **saliency_options)
+        i += 2 - mix_bg
     if occlusion is not None:
         axis = rows if rows_count == 1 else rows[i]
         fig, _ = draw_occlusion(batch, occlusion, use_pyplot=False, fig_axis=(fig, axis), **occlusion_options)

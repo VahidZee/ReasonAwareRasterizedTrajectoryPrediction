@@ -35,16 +35,13 @@ class LyftTrainerModule(pl.LightningModule, ABC):
         self.optimizer = optimizer
         self.scheduler = scheduler
         if model:
-            # print('None')
             self.model = model
         elif config["model_params"]["model_architecture"] == 'mobilenet':
-            # print('mobilenet')
             self.model = MobilenetV2(
                 in_channels=(config["model_params"]["history_num_frames"] + 1) * 2 + 3,
                 out_dim=2 * config["model_params"]["future_num_frames"],
                 pretrained=True, )
         else:
-            # print('resnet')
             self.model = BaseResnet(
                 in_channels=(config["model_params"]["history_num_frames"] + 1) * 2 + 3,
                 out_dim=2 * config["model_params"]["future_num_frames"],

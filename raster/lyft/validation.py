@@ -31,7 +31,7 @@ class ValidateModel:
     def __init__(
             self, model, rasterizer, root: str = 'preprocess', grad_enabled: bool = False, device: str = 'cpu',
             turn_thresh: float = 3., speed_thresh: float = 0.5, k: int = 500, prog=True,
-            output_root: str = 'validation', extreme_k: int = 5, visualize=True, seaborn_style: str = 'darkgrid'
+            output_root: str = 'validation', extreme_k: int = 5, visualize=True, seaborn_style: str = 'darkgrid',
     ):
         sns.set_theme(style=seaborn_style)
         self.root = root
