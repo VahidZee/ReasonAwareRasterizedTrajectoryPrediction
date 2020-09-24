@@ -67,7 +67,7 @@ class TrajSampler:
 class DataSplitter:
     def __init__(self, dataset, prog=True,
                  k: int = 500, p: float = 0.1, turn_thresh=3., speed_thresh=0.5,
-                 autosave=True, output_folder='preprocess'):
+                 autosave=True, output_folder='preprocess', save_index=True):
         TrajSampler.k = k
         TrajSampler.p = p
         self.turn_thresh = turn_thresh
@@ -78,6 +78,7 @@ class DataSplitter:
         self.autosave = autosave
         self.output_folder = output_folder
         self.size = 0
+        self.save_index = save_index
 
     def stats_df(self):
         frames = []
@@ -139,5 +140,7 @@ class DataSplitter:
                 self.data[traj_cls].add(idx, val)
                 self.size += 1
         finally:
+            if self.save_index:
+                self.stats_df.to_csv(f'{self.output_folder}/data_frame.csv')
             if self.autosave:
                 self.save(self.output_folder)
