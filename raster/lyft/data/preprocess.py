@@ -140,7 +140,7 @@ class DataSplitter:
                 self.data[traj_cls].add(idx, val)
                 self.size += 1
         finally:
-            if self.save_index:
-                self.stats_df.to_csv(f'{self.output_folder}/data_frame.csv')
+            # if self.save_index:
+            #     self.stats_df().to_csv(f'{self.output_folder}/data_frame.csv')
             if self.autosave:
                 self.save(self.output_folder)

@@ -59,6 +59,10 @@ class ValidateModel:
             occlusion=self.occlusion
         )
 
+    def plot_count(self, df: pd.DataFrame):
+        ax = sns.countplot(y="type", hue="kind", data=df)
+        ax.savefig(f"{self.output_root}/plot-count")
+
     def plot_loss_dist(self, df: pd.DataFrame):
         ax = sns.catplot(x='loss', y='type', hue='kind', data=df, kind='violin', dodge=True, height=25)
         # loss_plot = sns.swarmplot(x='loss', y='type', hue='kind', color="k", data=df, ax=ax.ax, dodge=True, alpha=0.5)
@@ -136,6 +140,7 @@ class ValidateModel:
             df = pd.concat(frames)
             df.to_csv(f'{self.output_root}/result.csv')
             self.plot_loss_dist(df)
+            self.plot_count(df)
             self.plot_scatter(df, 'loss', 'turn')
             self.plot_scatter(df, 'loss', 'speed')
             self.plot_scatter(df, 'pred_speed', 'speed')
