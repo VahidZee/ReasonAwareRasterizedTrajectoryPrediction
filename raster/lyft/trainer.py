@@ -9,7 +9,7 @@ from raster.models import BaseResnet
 from raster.models import MobilenetV2
 from raster.utils import str2bool
 from l5kit.configs import load_config_data
-from .utils import find_batch_extremes, draw_batch, saliency_map, filter_batch, batch_stats
+from .utils import find_batch_extremes, filter_batch
 from argparse import ArgumentParser
 
 from .data.module import LyftDataModule

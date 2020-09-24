@@ -1,6 +1,7 @@
 from typing import Union, Optional, Any, Tuple
 import numpy as np
 from l5kit.geometry import transform_points
+import torch
 
 __all__ = [
     'traj_stat', 'classify_traj', 'comp_val', 'filter_traj'

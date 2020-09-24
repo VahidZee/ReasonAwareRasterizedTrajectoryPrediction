@@ -18,11 +18,13 @@ class TrajSampler:
     def __init__(self):
         self.extreme = list()
         self.sample = list()
+        self.size = 0
 
     def __len__(self):
         return min(len(self.extreme), len(self.sample))
 
     def add(self, trj_idx: int, value: Any):
+        self.size += 1
         item = Item(value, trj_idx)
         bisect.insort(self.extreme, item)
         if len(self.extreme) > self.k:
