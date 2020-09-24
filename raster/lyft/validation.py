@@ -75,7 +75,7 @@ class ValidateModel:
         ax.figure.savefig(f"{self.output_root}/plot-type-confusion")
 
     def plot_scatter(self, df: pd.DataFrame, x_axis: str, y_axis: str):
-        ax = sns.lmplot(x="speed", y="pred_speed", col="type", row='kind', data=df,
+        ax = sns.lmplot(x=x_axis, y=y_axis, col="type", row='kind', data=df,
                         palette="muted",
                         scatter_kws={"s": 50, "alpha": 0.5}, line_kws={'color': 'red'})
         ax.savefig(f"{self.output_root}/plot-scatter-{x_axis}-{y_axis}")

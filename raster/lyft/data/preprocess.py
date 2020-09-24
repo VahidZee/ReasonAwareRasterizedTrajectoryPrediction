@@ -108,7 +108,7 @@ class DataSplitter:
             if kind == 'violin':
                 kwargs['inner'] = kwargs.get('innder', 'stick')
             ax = sns.catplot(
-                x='type', y=y, hue='kind', data=df, kind=kind, dodge=dodge, split=split, **kwargs)
+                x=y , y='type', hue='kind', data=df, kind=kind, dodge=dodge, split=split, **kwargs)
 
             ax.fig.suptitle(f'Capture of {len(self)} Samples')
             axes.append(ax)
