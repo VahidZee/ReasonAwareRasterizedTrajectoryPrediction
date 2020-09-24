@@ -155,31 +155,95 @@ def draw_occlusion(
         use_pyplot: bool = False,
         outlier_perc: float = 2.,
         fig_axis: tuple = None,
-        alpha_overlay: float = 0.7
-):
+        mix_bg: bool = True,
+        alpha_overlay: float = 0.7):
+    """
+    :param batch: batch to visualise
+    :param occlusion: Occlusion object initialised for trainer_module
+    :param window: Shape of patch (hyperrectangle) to occlude each input
+    :param stride: step by which the occlusion hyperrectangle should be shifted by in each direction
+    :param sign: sign of gradient attributes to visualise
+    :param method: method of visualization to be used
+    :param use_pyplot: whether to use pyplot
+    :param mix_bg: whether to mix semantic/aerial map with vehicles
+    :return: pair of figure and corresponding gradients tensor
+    """
+
     batch['image'].requires_grad = True
     strides = (batch['image'].shape[2] // stride[0], batch['image'].shape[3] // stride[1])
     window_size = (batch['image'].shape[2] // window[0], batch['image'].shape[3] // window[1])
     channels = batch['image'].shape[1]
-    grads = occlusion.attribute(batch['image'], strides=(channels, *strides),
-                                sliding_window_shapes=(channels, *window_size),
-                                baselines=0, additional_forward_args=(
-            batch['target_positions'], None if 'target_availabilities' not in batch else batch['target_availabilities'],
-            False))
+    grads = []
+    if mix_bg:
+        print(1)
+        grads.append(
+            occlusion.attribute(
+                batch['image'], strides=(channels, *strides),
+                sliding_window_shapes=(channels, *window_size),
+                baselines=0,
+                additional_forward_args=(
+                    batch['target_positions'],
+                    None if 'target_availabilities' not in batch else batch['target_availabilities'],
+                    False
+                )
+            )
+        )
+        print(2)
+    else:
+        grads.append(
+            occlusion.attribute(
+                batch['image'], strides=(3, *strides),
+                sliding_window_shapes=(channels-3, *window_size),
+                baselines=0,
+                additional_forward_args=(
+                    batch['target_positions'],
+                    None if 'target_availabilities' not in batch else batch['target_availabilities'],
+                    False
+                )
+            )
+        )
+        grads.append(
+            occlusion.attribute(
+                batch['image'], strides=(channels - 3, *strides),
+                sliding_window_shapes=(channels, *window_size),
+                baselines=0,
+                additional_forward_args=(
+                    batch['target_positions'],
+                    None if 'target_availabilities' not in batch else batch['target_availabilities'],
+                    False
+                )
+            )
+        )
     batch['image'].requires_grad = False
-    gradsm = grads.squeeze().cpu().detach().numpy()
-    if len(gradsm.shape) == 3:
-        gradsm = gradsm.reshape(1, *gradsm.shape)
-    gradsm = np.transpose(gradsm, (0, 2, 3, 1))
+    gradsm = []
+    for grad in grads:
+        gradsm.append(grad.squeeze().cpu().detach().numpy())
+    if len(gradsm[0].shape) == 3:
+        for i in range(len(gradsm)):
+            gradsm[i] = gradsm[i].reshape(1, *gradsm[i].shape)
+    for i in range(len(gradsm)):
+        gradsm[i] = np.transpose(gradsm[i], (0, 2, 3, 1))
     im = batch['image'].detach().cpu().numpy().transpose(0, 2, 3, 1)
-    fig, axis = fig_axis if fig_axis is not None else plt.subplots(1, im.shape[0], dpi=200, figsize=(6, 6))
+    fig, axis = fig_axis if fig_axis is not None else plt.subplots(2 - mix_bg, im.shape[0], dpi=200, figsize=(2, 4))
     fig.set_tight_layout(True)
     for b in range(im.shape[0]):
-        viz.visualize_image_attr(
-            gradsm[b, :, :, :], im[b, :, :, :], method=method, sign=sign,
-            use_pyplot=use_pyplot, plt_fig_axis=(fig, axis if im.shape[0] == 1 else axis[b]),
-            outlier_perc=outlier_perc, alpha_overlay=alpha_overlay)
-        (axis if im.shape[0] == 1 else axis[b]).axis('off')
+        if mix_bg:
+            viz.visualize_image_attr(
+                gradsm[0][b, :, :, :], im[b, :, :, :], method=method, sign=sign,
+                use_pyplot=use_pyplot,
+                plt_fig_axis=(fig, axis if im.shape[0] == 1 else axis[b]),
+                outlier_perc=outlier_perc, alpha_overlay=alpha_overlay
+            )
+            (axis if im.shape[0] == 1 else axis[b]).axis('off')
+        else:
+            for (s_channel, end_channel), row in [((im.shape[-1] - 3, im.shape[-1]), 0), ((0, im.shape[-1] - 3), 1)]:
+                viz.visualize_image_attr(
+                    gradsm[row][b, :, :, s_channel:end_channel], im[b, :, :, s_channel:end_channel], method=method,
+                    sign=sign, use_pyplot=use_pyplot,
+                    plt_fig_axis=(fig, axis[row] if im.shape[0] == 1 else axis[row][b]),
+                    outlier_perc=outlier_perc, alpha_overlay=alpha_overlay
+                )
+                (axis[row] if im.shape[0] == 1 else axis[row][b]).axis('off')
     return fig, grads
 
 
