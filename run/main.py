@@ -14,7 +14,7 @@ args = parser.parse_args()
 
 if __name__ == '__main__':
     # initializing various parts
-    config = load_config_data('./config.yaml')
+    config = load_config_data('../config.yaml')
     datamodule = LyftDataModule(config['train_params'].get('datapath', '~/lyft/'), config)
     training_procedure = LyftTrainerModule(config)
     training_procedure.datamodule = datamodule

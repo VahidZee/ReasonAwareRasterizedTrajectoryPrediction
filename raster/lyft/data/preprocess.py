@@ -5,13 +5,19 @@ import pandas as pd
 import bisect
 import seaborn as sns
 from pathlib import Path
+
+from l5kit.configs import load_config_data
+from l5kit.data import LocalDataManager, ChunkedDataset
+from l5kit.dataset import AgentDataset
+from l5kit.rasterization import build_rasterizer
+
 from .stats import *
 import tqdm
 
 Item = namedtuple('Item', ['value', 'payload'])
 
 
-class TrajSampler:
+class TrajSampler:  # todo remove
     k: int = 500
     p = 0.1
 
@@ -64,83 +70,62 @@ class TrajSampler:
         return f'(s:{len(self.sample)}, e:{len(self.extreme)})'
 
 
-class DataSplitter:
-    def __init__(self, dataset, prog=True,
-                 k: int = 500, p: float = 0.1, turn_thresh=3., speed_thresh=0.5,
-                 autosave=True, output_folder='preprocess', save_index=True):
-        TrajSampler.k = k
-        TrajSampler.p = p
+class DataAnalyser:
+    def __init__(self, data_root: str, config_path: str, split: str, show_progress=True, turn_thresh=3.,
+                 speed_thresh=0.5, static_thresh=1., output_folder='preprocess', autosave=True, cache_size=1e9):
+        self.autosave = autosave
+        self.show_progress = show_progress
         self.turn_thresh = turn_thresh
         self.speed_thresh = speed_thresh
-        self.data = defaultdict(TrajSampler)
-        self.prog = prog
-        self.dataset = dataset
-        self.autosave = autosave
+        self.static_thresh = static_thresh
+        self.split = split
+        self.config = load_config_data(config_path)
         self.output_folder = output_folder
-        self.size = 0
-        self.save_index = save_index
 
-    def stats_df(self):
-        frames = []
-        for traj_cls, traj_sampler in self.data.items():
-            stats = traj_sampler.stats_dict()
-            stats['type'] = [traj_cls] * (len(traj_sampler.sample) + len(traj_sampler.extreme))
-            frames.append(pd.DataFrame(stats))
-        return pd.concat(frames)
+        self.data_manager = LocalDataManager(data_root)
+        self.rasterizer = build_rasterizer(self.config, self.data_manager)
+        self.data_zarr = ChunkedDataset(self.data_manager.require(split)).open(cache_size_bytes=int(cache_size))
+        self.dataset = AgentDataset(self.config, self.data_zarr, self.rasterizer)
+
+        self.data = defaultdict(list)
+        self.junk = defaultdict(list)
+
+        self.progress = None
 
     def save(self, folder_name=None):
         folder_name = folder_name or self.output_folder
         Path(folder_name).mkdir(parents=True, exist_ok=True)
-        items = self.data.items()
-        prog = items if not self.prog else tqdm.tqdm(items, ascii=True, desc='Saving')
-        for name, samp in prog:
-            if self.prog:
-                prog.set_postfix_str(name)
-            np.savez_compressed(f'{folder_name}/{name}', data=samp.as_dict(self.dataset))
-        axes = self.plot_stats()
-        axes[0].savefig(f'{folder_name}/turn')
-        axes[1].savefig(f'{folder_name}/speed')
+        print('saving:')
+        for item in ['data', 'junk']:
+            print('\t', item)
+            data = getattr(self, item)
+            # filling last columns if necessary
+            max_len = max([len(value) for idx, value in data.items()])
+            for idx in data:
+                if len(data[idx]) != max_len:
+                    data[idx].append(None)
+            df = pd.DataFrame(data)
+            df.to_csv(f'{self.output_folder}/{self.split.replace("/", "_").replace(".zarr", "")}_{item}.csv')
 
-    def plot_stats(self, kind='strip', dodge=True, split=True, **kwargs):
-        axes = []
-        df = self.stats_df()
-        for y in ['turn', 'speed']:
-            if kind == 'violin':
-                kwargs['inner'] = kwargs.get('innder', 'stick')
-            ax = sns.catplot(
-                x=y , y='type', hue='kind', data=df, kind=kind, dodge=dodge, split=split, **kwargs)
-
-            ax.fig.suptitle(f'Capture of {len(self)} Samples')
-            axes.append(ax)
-        return axes
-
-    @property
-    def min_size(self):
-        return min([len(s) for s in self.data.values()])
-
-    def __len__(self):
-        return self.size
-
-    def __repr__(self):
-        return f"Capture of {len(self)} Samples" + "\n\t" + '\n\t'.join(
-            f'{item}{samp}' for item, samp in self.data.items())
-
-    def split(self, start=0, end=None, step=10):
+    def process(self, start=0, end=None, step=10):
         end = end or len(self.dataset)
         idxs = range(start, end, step)
-        prog = idxs if not self.prog else tqdm.tqdm(idxs, ascii=True)
+        self.progress = idxs if not self.show_progress else tqdm.tqdm(idxs, ascii=True)
         try:
-            for idx in prog:
+            for idx in self.progress:
                 traj = self.dataset[idx]
-                if filter_traj(traj):
+                filter_res = filter_traj(traj, self.static_thresh)
+                if filter_res:
+                    self.junk['type'].append(filter_res[0])
+                    self.junk['value'].append(float(filter_res[1]))
+                    self.junk['idx'].append(int(idx))
                     continue
                 stats = traj_stat(traj)
-                traj_cls = classify_traj(*stats, self.turn_thresh, self.speed_thresh)
-                val = comp_val(*stats, traj_cls)
-                self.data[traj_cls].add(idx, val)
-                self.size += 1
+                self.data['idx'].append(idx)
+                for key, value in stats:
+                    self.data[key].append(float(value))
+        except Exception as e:
+            print('stopping', e)
         finally:
-            # if self.save_index:
-            #     self.stats_df().to_csv(f'{self.output_folder}/data_frame.csv')
             if self.autosave:
                 self.save(self.output_folder)

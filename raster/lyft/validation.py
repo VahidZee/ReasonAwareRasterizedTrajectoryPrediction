@@ -53,7 +53,7 @@ class ValidateModel:
         self.occlusion = None if not visualize else Occlusion(self.model)
 
     def visualize_extremes(self, batch, res_type: str, kind: str, traj_cls: str):
-        title = f'{traj_cls}-{kind}-{res_type}'
+        title = f'{traj_cls}{f"-{res_type}" if res_type else ""}-{kind}'
         visualize_batch(
             batch, rasterizer=self.rasterizer, title=title, output_root=self.output_root, saliency=self.saliency,
             occlusion=self.occlusion
@@ -89,9 +89,11 @@ class ValidateModel:
         res = defaultdict(list)
         if self.visualize:
             best_batch, worst_batch = find_batch_extremes(batch, loss, prediction, self.extreme_k, to_tensor=True)
-            self.visualize_extremes(best_batch, 'best', kind, traj_cls)
-            self.visualize_extremes(best_batch, 'worst', kind, traj_cls)
-
+            if len(best_batch['image']) > self.extreme_k:
+                self.visualize_extremes(best_batch, 'best', kind, traj_cls)
+                self.visualize_extremes(best_batch, 'worst', kind, traj_cls)
+            else:
+                self.visualize_extremes(best_batch, '', kind, traj_cls)
         for idx, item in enumerate(zip(prediction, loss)):
             pred, err = item
             traj = {

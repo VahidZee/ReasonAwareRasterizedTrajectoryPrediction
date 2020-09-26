@@ -116,7 +116,6 @@ def saliency_map(
     gradsm = np.transpose(gradsm, (0, 2, 3, 1))
     im = batch['image'].detach().cpu().numpy().transpose(0, 2, 3, 1)
     fig, axis = fig_axis if fig_axis is not None else plt.subplots(2 - mix_bg, im.shape[0], dpi=200, figsize=(6, 6))
-    fig.set_tight_layout(True)
     for b in range(im.shape[0]):
         if mix_bg:
             grad_norm = float(np.abs(gradsm[b, ...]).sum())
@@ -156,7 +155,8 @@ def draw_occlusion(
         outlier_perc: float = 2.,
         fig_axis: tuple = None,
         mix_bg: bool = True,
-        alpha_overlay: float = 0.7):
+        alpha_overlay: float = 0.7
+):
     """
     :param batch: batch to visualise
     :param occlusion: Occlusion object initialised for trainer_module
@@ -169,80 +169,46 @@ def draw_occlusion(
     :return: pair of figure and corresponding gradients tensor
     """
 
-    batch['image'].requires_grad = True
     strides = (batch['image'].shape[2] // stride[0], batch['image'].shape[3] // stride[1])
     window_size = (batch['image'].shape[2] // window[0], batch['image'].shape[3] // window[1])
     channels = batch['image'].shape[1]
-    grads = []
-    if mix_bg:
-        print(1)
-        grads.append(
-            occlusion.attribute(
-                batch['image'], strides=(channels, *strides),
-                sliding_window_shapes=(channels, *window_size),
-                baselines=0,
-                additional_forward_args=(
-                    batch['target_positions'],
-                    None if 'target_availabilities' not in batch else batch['target_availabilities'],
-                    False
-                )
-            )
-        )
-        print(2)
-    else:
-        grads.append(
-            occlusion.attribute(
-                batch['image'], strides=(3, *strides),
-                sliding_window_shapes=(channels-3, *window_size),
-                baselines=0,
-                additional_forward_args=(
-                    batch['target_positions'],
-                    None if 'target_availabilities' not in batch else batch['target_availabilities'],
-                    False
-                )
-            )
-        )
-        grads.append(
-            occlusion.attribute(
-                batch['image'], strides=(channels - 3, *strides),
-                sliding_window_shapes=(channels, *window_size),
-                baselines=0,
-                additional_forward_args=(
-                    batch['target_positions'],
-                    None if 'target_availabilities' not in batch else batch['target_availabilities'],
-                    False
-                )
-            )
-        )
-    batch['image'].requires_grad = False
-    gradsm = []
-    for grad in grads:
-        gradsm.append(grad.squeeze().cpu().detach().numpy())
-    if len(gradsm[0].shape) == 3:
-        for i in range(len(gradsm)):
-            gradsm[i] = gradsm[i].reshape(1, *gradsm[i].shape)
-    for i in range(len(gradsm)):
-        gradsm[i] = np.transpose(gradsm[i], (0, 2, 3, 1))
+
+    grads = occlusion.attribute(
+        batch['image'], strides=(channels if mix_bg else channels - 3, *strides),
+        sliding_window_shapes=(channels if mix_bg else channels - 3, *window_size),
+        baselines=0,
+        additional_forward_args=(
+            batch['target_positions'],
+            None if 'target_availabilities' not in batch else batch['target_availabilities'],
+            False))
+
+    gradsm = grads.squeeze().cpu().detach().numpy()
+    if len(gradsm.shape) == 3:
+        gradsm = gradsm.reshape(1, *gradsm.shape)
+    gradsm = np.transpose(gradsm, (0, 2, 3, 1))
     im = batch['image'].detach().cpu().numpy().transpose(0, 2, 3, 1)
-    fig, axis = fig_axis if fig_axis is not None else plt.subplots(2 - mix_bg, im.shape[0], dpi=200, figsize=(2, 4))
-    fig.set_tight_layout(True)
+    fig, axis = fig_axis if fig_axis is not None else plt.subplots(2 - mix_bg, im.shape[0], dpi=200, figsize=(6, 6))
     for b in range(im.shape[0]):
         if mix_bg:
             viz.visualize_image_attr(
-                gradsm[0][b, :, :, :], im[b, :, :, :], method=method, sign=sign,
-                use_pyplot=use_pyplot,
+                gradsm[b, ...], im[b, ...], method=method,
+                sign=sign, use_pyplot=use_pyplot,
                 plt_fig_axis=(fig, axis if im.shape[0] == 1 else axis[b]),
-                outlier_perc=outlier_perc, alpha_overlay=alpha_overlay
+                alpha_overlay=alpha_overlay, outlier_perc=outlier_perc,
             )
+            ttl = (axis if im.shape[0] == 1 else axis[b]).title
+            ttl.set_position([.5, 0.95])
             (axis if im.shape[0] == 1 else axis[b]).axis('off')
         else:
             for (s_channel, end_channel), row in [((im.shape[-1] - 3, im.shape[-1]), 0), ((0, im.shape[-1] - 3), 1)]:
                 viz.visualize_image_attr(
-                    gradsm[row][b, :, :, s_channel:end_channel], im[b, :, :, s_channel:end_channel], method=method,
+                    gradsm[b, :, :, s_channel:end_channel], im[b, :, :, s_channel:end_channel], method=method,
                     sign=sign, use_pyplot=use_pyplot,
                     plt_fig_axis=(fig, axis[row] if im.shape[0] == 1 else axis[row][b]),
-                    outlier_perc=outlier_perc, alpha_overlay=alpha_overlay
+                    alpha_overlay=alpha_overlay, outlier_perc=outlier_perc,
                 )
+                ttl = (axis[row] if im.shape[0] == 1 else axis[row][b]).title
+                ttl.set_position([.5, 0.95])
                 (axis[row] if im.shape[0] == 1 else axis[row][b]).axis('off')
     return fig, grads
 
@@ -260,7 +226,8 @@ def visualize_batch(
     if title_size is not None and title:
         plt.rc('axes', titlesize=subtitle_size)
 
-    rows_count = sum([rasterizer is not None, (occlusion is not None), (saliency is not None) * (2 - mix_bg)])
+    rows_count = sum(
+        [rasterizer is not None, (occlusion is not None) * (2 - mix_bg), (saliency is not None) * (2 - mix_bg)])
     fig, rows = plt.subplots(
         rows_count, batch['image'].shape[0],
         figsize=((unit_size + wspace + hspace) * batch['image'].shape[0],
@@ -286,7 +253,8 @@ def visualize_batch(
                               mix_bg=mix_bg, alpha_overlay=alpha_overlay, **saliency_options)
         i += 2 - mix_bg
     if occlusion is not None:
-        axis = rows if rows_count == 1 else rows[i]
-        fig, _ = draw_occlusion(batch, occlusion, use_pyplot=False, fig_axis=(fig, axis), **occlusion_options)
+        axis = rows if rows_count == 1 else rows[i] if mix_bg else (rows[i], rows[i + 1])
+        fig, _ = draw_occlusion(batch, occlusion, use_pyplot=False, fig_axis=(fig, axis),
+                                mix_bg=mix_bg, alpha_overlay=alpha_overlay, **occlusion_options)
     if output_root:
         fig.savefig(f'{output_root}/{title}')
