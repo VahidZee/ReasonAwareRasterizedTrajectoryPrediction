@@ -1,9 +1,9 @@
-from .base_resnet import BaseResnet
-from .mobilenet_v2 import MobilenetV2
+from .resnet import Resnet
+from .mobilenet import Mobilenet
 
 __all__ = [
-    'BaseResnet',
-    'MobilenetV2'
+    'Resnet',
+    'Mobilenet'
 ]
 
 

@@ -1,3 +1,5 @@
+from argparse import ArgumentParser
+
 from torch.utils.data import DataLoader, ConcatDataset
 from pytorch_lightning import LightningDataModule
 
@@ -78,3 +80,18 @@ class LyftDataModule(LightningDataModule):
             num_workers=num_workers,
             shuffle=self.config['test_dataloader'].get('shuffle', True),
         )
+
+    @staticmethod
+    def add_model_specific_args(parent_parser):
+        parser = ArgumentParser(parents=[parent_parser], add_help=False)
+        parser.add_argument('--data-root', required=True, type=str,
+                            help='desired high resolution image folder to be used for training')
+        parser.add_argument('--train-split', type=str, help='train split scenes')
+        parser.add_argument('--val-split', type=str, help='validation split scenes')
+        parser.add_argument('--test-split', type=str, help='test split scenes')
+        parser.add_argument('--train-batch-size', type=int, default=4, help='train batch size of dataloaders')
+        parser.add_argument('--val-batch-size', type=int, default=4, help='validation batch size of dataloaders')
+        parser.add_argument('--test-batch-size', type=int, default=4, help='test batch size of dataloaders')
+        parser.add_argument('--validation-proportion', type=float, default=0.1, help='validation proportion in data')
+        parser.add_argument('--cache-size', type=float, default=1e9, help='cache size for each data split')
+        return parser
