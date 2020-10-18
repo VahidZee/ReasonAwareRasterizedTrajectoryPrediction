@@ -1,18 +1,30 @@
 import argparse
 
 
-def str2bool(v):
-    """
-    Utility function for adding boolean arguments to arg parser
-    :param v:
-    :return:
-    """
-    if isinstance(v, bool):
-        return v
-    if v.lower() in ('yes', 'true', 't', 'y', '1'):
+def boolify(s):
+    if s == 'True' or s == 'true' or s == 'yes' or s == 'Yes':
         return True
-    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+    if s == 'False' or s == 'false' or s == 'no' or s == 'No':
         return False
-    else:
-        raise argparse.ArgumentTypeError('Boolean value expected.')
+    raise ValueError("cast error")
 
+
+def auto_cast(s):
+    for fn in (boolify, int, float):
+        try:
+            return fn(s)
+        except ValueError:
+            pass
+    return s
+
+
+# create a keyvalue class
+class KeyValue(argparse.Action):
+    # Constructor calling
+    def __call__(self, parser, namespace,
+                 values, option_string=None):
+        setattr(namespace, self.dest, dict())
+
+        for value in values:
+            key, value = value.split('=')
+            getattr(namespace, self.dest)[key] = auto_cast(value)

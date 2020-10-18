@@ -1,4 +1,5 @@
 import torch
+import numpy as np
 
 
 def filter_batch(batch: dict, filter_static_history: float):
@@ -38,3 +39,44 @@ def find_batch_extremes(batch, batch_loss, outputs, k=5, require_grad=False, to_
         worst_batch['prediction'] = outputs[worst_idx]
         worst_batch['outputs'] = outputs[worst_idx]
     return best_batch, worst_batch
+
+
+# --- Function utils ---
+# Original code from https://github.com/lyft/l5kit/blob/20ab033c01610d711c3d36e1963ecec86e8b85b6/l5kit/l5kit/evaluation/metrics.py
+def neg_multi_log_likelihood(
+        gt: torch.Tensor, pred: torch.Tensor, confidences: torch.Tensor, avails: torch.Tensor = None
+) -> torch.Tensor:
+    """
+    Compute a negative log-likelihood for the multi-modal scenario.
+    log-sum-exp trick is used here to avoid underflow and overflow, For more information about it see:
+    https://en.wikipedia.org/wiki/LogSumExp#log-sum-exp_trick_for_log-domain_calculations
+    https://timvieira.github.io/blog/post/2014/02/11/exp-normalize-trick/
+    https://leimao.github.io/blog/LogSumExp/
+    Args:
+        gt (Tensor): array of shape (bs)x(time)x(2D coords)
+        pred (Tensor): array of shape (bs)x(modes)x(time)x(2D coords)
+        confidences (Tensor): array of shape (bs)x(modes) with a confidence for each mode in each sample
+        avails (Tensor): array of shape (bs)x(time) with the availability for each gt timestep
+    Returns:
+        Tensor: negative log-likelihood for this example, a single float number
+    """
+    batch_size, num_modes, future_len, num_coords = pred.shape
+
+    # convert to (batch_size, num_modes, future_len, num_coords)
+    if len(gt.shape) != len(pred.shape):
+        gt = torch.unsqueeze(gt, 1)  # add modes
+    if avails is not None:
+        avails = avails[:, None, :, None]  # add modes and cords
+        # error (batch_size, num_modes, future_len)
+        error = torch.sum(((gt - pred) * avails) ** 2, dim=-1)  # reduce coords and use availability
+    else:
+        error = torch.sum((gt - pred) ** 2, dim=-1)  # reduce coords and use availability
+    with np.errstate(divide="ignore"):  # when confidence is 0 log goes to -inf, but we're fine with it
+        # error (batch_size, num_modes)
+        error = torch.log(confidences) - 0.5 * torch.sum(error, dim=-1)  # reduce time
+
+    # use max aggregator on modes for numerical stability
+    # error (batch_size, num_modes)
+    max_value, _ = error.max(dim=1, keepdim=True)  # error are negative at this point, so max() gives the minimum one
+    error = -torch.log(torch.sum(torch.exp(error - max_value), dim=-1, keepdim=True)) - max_value  # reduce modes
+    return error.reshape(-1)

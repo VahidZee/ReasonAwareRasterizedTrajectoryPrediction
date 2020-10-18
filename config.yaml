@@ -4,8 +4,6 @@ format_version: 4
 ###################
 ## Model options
 model_params:
-  model_architecture: "resnet50"
-
   history_num_frames: 10
   history_step_size: 1
   history_delta_time: 0.1
