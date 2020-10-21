@@ -185,6 +185,7 @@ class LyftTrainerModule(pl.LightningModule, ABC):
     def add_model_specific_args(parent_parser):
         parser = ArgumentParser(parents=[parent_parser], add_help=False)
         parser.add_argument('--model', type=str, default='Resnet', help='model architecture class to use')
+        parser.add_argument('--modes', type=int, default=1, help='number of modes of model prediction')
         parser.add_argument('--optimizer', type=str, default='Adam', help='optimizer to use')
         parser.add_argument('--optimizer-dict', nargs='*', action=KeyValue, help='additional optimizer specific args')
         parser.add_argument('--lr', type=float, default=1e-4, help='learning rate')
@@ -200,7 +201,7 @@ class LyftTrainerModule(pl.LightningModule, ABC):
         parser.add_argument('--pgd-eps-semantics', type=float, default=0.15625,
                             help='epsilon bound for pgd attack on semantic layers')
         parser.add_argument('--saliency-factor', type=float, default=1e-4, help='saliency supervision factor')
-        parser.add_argument('--saliency-intrest', type=float, default=1e-4,
+        parser.add_argument('--saliency-intrest', type=str, default='simple',
                             help='intrest region calculation for saliency supervision')
         parser.add_argument('--saliency-dict', nargs='*', action=KeyValue,
                             help='additional saliency supervision specific args')
