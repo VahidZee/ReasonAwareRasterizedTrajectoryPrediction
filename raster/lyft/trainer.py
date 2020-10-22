@@ -19,6 +19,7 @@ class LyftTrainerModule(pl.LightningModule, ABC):
             self,
             config: dict,
             model: str = 'Resnet',
+            model_dict: dict = None,
             modes: int = 1,
             optimizer: str = 'Adam',
             optimizer_dict: th.Optional[dict] = None,
@@ -34,36 +35,22 @@ class LyftTrainerModule(pl.LightningModule, ABC):
             pgd_eps_vehicles: float = 0.4,
             pgd_eps_semantics: float = 0.15625,
             track_grad: bool = False,
-            **kwargs
     ):
         super().__init__()
 
         hparams = dict(
-            config=config, optimizer=optimizer, scheduler=scheduler, model=model, lr=lr, modes=modes,
-            saliency_factor=saliency_factor, saliency_intrest=saliency_intrest, pgd_iters=pgd_iters,
-            pgd_alpha=pgd_alpha, pgd_random_start=pgd_random_start, pgd_eps_vehicles=pgd_eps_vehicles,
-            pgd_eps_semantics=pgd_eps_semantics)
-        defhparams = list(hparams.keys())
-        for name, _dict in [('scheduler', scheduler_dict), ('optimizer', optimizer_dict), ('saliency', saliency_dict)]:
-            for item in _dict if _dict else dict():
-                hparams[f'{name}_{item}'] = _dict[item]
+            config=config, optimizer=optimizer, scheduler=scheduler, model=model, model_dict=model_dict, lr=lr,
+            modes=modes, saliency_factor=saliency_factor, saliency_intrest=saliency_intrest,
+            saliency_dict=saliency_dict, pgd_iters=pgd_iters, pgd_alpha=pgd_alpha, pgd_random_start=pgd_random_start,
+            pgd_eps_vehicles=pgd_eps_vehicles, pgd_eps_semantics=pgd_eps_semantics, optimizer_dict=optimizer_dict,
+            scheduler_dict=scheduler_dict)
+
         self.save_hyperparameters(hparams)
-        scheduler_dict = scheduler_dict or dict()
-        optimizer_dict = optimizer_dict or dict()
-        saliency_dict = saliency_dict or dict()
-        model_kwargs = dict()
-        for key in self.hparams:
-            if key not in defhparams:
-                kwargs[key] = self.hparams[key]
-                if key.startswith('scheduler_'):
-                    scheduler_dict[key.replace("scheduler_", "")] = self.hparams[key]
-                elif key.startswith('optimizer_'):
-                    optimizer_dict[key.replace("optimizer_", "")] = self.hparams[key]
-                elif key.startswith('saliency_'):
-                    saliency_dict[key.replace("saliency_", "")] = self.hparams[key]
-                else:
-                    model_kwargs[key] = self.hparams[key]
-        self.model = getattr(models, self.hparams.model)(config=config, modes=modes, **model_kwargs)
+        scheduler_dict = self.hparams.scheduler_dict or dict()
+        optimizer_dict = self.hparams.optimizer_dict or dict()
+        saliency_dict = self.hparams.saliency_dict or dict()
+        model_dict = self.hparams.model_dict or dict()
+        self.model = getattr(models, self.hparams.model)(config=config, modes=modes, **model_dict)
         self.config = self.hparams.config
         self.modes = self.hparams.modes
         self.saliency_factor = self.hparams.saliency_factor
@@ -100,6 +87,7 @@ class LyftTrainerModule(pl.LightningModule, ABC):
         for i in range(self.pgd_iters):
             loss = neg_multi_log_likelihood(outputs, *self.model((inputs.detach() + delta).clamp(0, 1.)),
                                             target_availabilities).mean()
+
             if i == 0 and return_loss:
                 init_loss = loss.detach()
             loss.backward()
@@ -185,6 +173,8 @@ class LyftTrainerModule(pl.LightningModule, ABC):
     def add_model_specific_args(parent_parser):
         parser = ArgumentParser(parents=[parent_parser], add_help=False)
         parser.add_argument('--model', type=str, default='Resnet', help='model architecture class to use')
+        parser.add_argument('--model-dict', nargs='*', default=dict(), action=KeyValue,
+                            help='additional model specific args')
         parser.add_argument('--modes', type=int, default=1, help='number of modes of model prediction')
         parser.add_argument('--optimizer', type=str, default='Adam', help='optimizer to use')
         parser.add_argument('--optimizer-dict', nargs='*', action=KeyValue, help='additional optimizer specific args')
@@ -207,6 +197,4 @@ class LyftTrainerModule(pl.LightningModule, ABC):
                             help='additional saliency supervision specific args')
         parser.add_argument('--track-grad', type=boolify, default=False,
                             help='whether to log grad norms')
-        parser.add_argument('--kwargs', nargs='*', default=dict(), action=KeyValue,
-                            help='additional model specific args')
         return parser

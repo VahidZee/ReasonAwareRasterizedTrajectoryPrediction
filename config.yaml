@@ -54,11 +54,3 @@ val_dataloader:
   batch_size: 16
   shuffle: False
   num_workers: 0
-
-## Train params
-train_params:
-  checkpoint_every_n_steps: 10000
-  max_num_steps: 5
-  eval_every_n_steps: 10000
-  lr: 1e-4
-
