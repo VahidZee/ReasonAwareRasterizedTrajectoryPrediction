@@ -80,6 +80,7 @@ class LyftDataModule(LightningDataModule):
                 cache_size_bytes=int(self.cache_size))
             train_data = AgentDataset(self.config, train_zarr, self.rasterizer)
             if self.train_idxs is not None:
+                print('subsetting train data')
                 train_data = Subset(train_data, self.train_idxs)
             if self.val_split is None or self.val_split == self.train_split:
                 tl = len(train_data)
@@ -90,7 +91,8 @@ class LyftDataModule(LightningDataModule):
                     cache_size_bytes=int(self.cache_size))
                 self.val_data = AgentDataset(self.config, val_zarr, self.rasterizer)
                 if self.val_idxs is not None:
-                    self.val_data = Subset(train_data, self.val_idxs)
+                    print('subsetting val data')
+                    self.val_data = Subset(self.val_data, self.val_idxs)
 
     def _get_dataloader(self, name: str, batch_size=None, num_workers=None, shuffle=None):
         batch_size = batch_size or getattr(self, f'{name}_batch_size')
