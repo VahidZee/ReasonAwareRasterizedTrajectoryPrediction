@@ -44,7 +44,8 @@ class LyftDataModule(LightningDataModule):
         self.train_split = train_split or config['train_dataloader']['split']
         self.train_batch_size = train_batch_size or config['train_dataloader']['batch_size']
         self.train_shuffle = train_shuffle or config['train_dataloader'].get('shuffle', True)
-        self.train_num_workers = train_num_workers or config['train_dataloader'].get('num_workers', DEFAULT_NUM_WORKERS)
+        self.train_num_workers = train_num_workers if train_num_workers is not None else config['train_dataloader'].get(
+            'num_workers', DEFAULT_NUM_WORKERS)
         self.train_idxs = None if train_idxs is None else pd.read_csv(train_idxs)['idx']
         print('train\n\t*split:', self.train_split, '*batch_size:', self.train_batch_size, '*shuffle:',
               self.train_shuffle, '*num_workers:', self.train_num_workers, '*idxs:', train_idxs)
@@ -54,8 +55,8 @@ class LyftDataModule(LightningDataModule):
         self.val_batch_size = val_batch_size or config.get('val_dataloader', dict()).get(
             'batch_size', self.train_batch_size)
         self.val_shuffle = val_shuffle or config.get('val_dataloader', dict()).get('shuffle', False)
-        self.val_num_workers = val_num_workers or config.get('val_dataloader', dict()).get(
-            'num_workers', DEFAULT_NUM_WORKERS)
+        self.val_num_workers = val_num_workers if val_num_workers is not None else config.get(
+            'val_dataloader', dict()).get('num_workers', DEFAULT_NUM_WORKERS)
         self.val_idxs = None if val_idxs is None else pd.read_csv(val_idxs)['idx']
         assert self.val_split is not None or self.val_proportion is not None, \
             'validation proportion should not be None'

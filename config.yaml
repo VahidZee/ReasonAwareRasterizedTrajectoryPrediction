@@ -47,13 +47,13 @@ train_dataloader:
   split: "scenes/sample.zarr"
   batch_size: 16
   shuffle: True
-  num_workers: 16
+  num_workers: 0
 
 val_dataloader:
   split: "scenes/sample.zarr"
   batch_size: 16
   shuffle: False
-  num_workers: 16
+  num_workers: 0
 
 ## Train params
 train_params:
