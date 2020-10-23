@@ -87,6 +87,7 @@ class LyftDataModule(LightningDataModule):
                 vl = int(tl * self.val_proportion)
                 self.train_data, self.val_data = random_split(train_data, [tl - vl, vl])
             else:
+                self.train_data = train_data
                 val_zarr = ChunkedDataset(self.data_manager.require(self.val_split)).open(
                     cache_size_bytes=int(self.cache_size))
                 self.val_data = AgentDataset(self.config, val_zarr, self.rasterizer)
