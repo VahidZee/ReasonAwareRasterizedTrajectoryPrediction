@@ -44,7 +44,7 @@ class LyftTrainerModule(pl.LightningModule, ABC):
     ):
         super().__init__()
         self.save_hyperparameters()
-
+        print(self.hparams)
         # initializing model
         self.model = getattr(models, self.hparams.model)(config=self.hparams.config, modes=self.hparams.modes,
                                                          **(self.hparams.model_dict or dict()))
@@ -53,7 +53,13 @@ class LyftTrainerModule(pl.LightningModule, ABC):
                                             ) if self.hparams.saliency_factor else None
         # optimization & scheduling
         self.lr = self.hparams.lr
-        self.track_grad = track_grad
+        self.track_grad = self.hparams.track_grad
+
+    def on_fit_start(self):
+        metrics = ['loss', 'nll', 'grads/total', 'saliency']
+        metric_placeholder = {
+            **{f'{m}/train': -1 for m in metrics}, **{f'{m}/val': -1 for m in metrics}}
+        self.logger.log_hyperparams(self.hparams, metrics=metric_placeholder)
 
     def pgd_attack(self, inputs, outputs, target_availabilities=None, return_loss=True):
         targets = outputs

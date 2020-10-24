@@ -1,13 +1,19 @@
 import pytorch_lightning as pl
+from pytorch_lightning import loggers
 from l5kit.configs import load_config_data
 from raster.lyft import LyftTrainerModule, LyftDataModule
+from pathlib import Path
 import argparse
 import torch
+from raster.utils import boolify
 
 parser = argparse.ArgumentParser(description='Manage running job')
 parser.add_argument('--seed', type=int, default=313, help='random seed to use')
 parser.add_argument('--config', type=str, required=True, help='config yaml path')
-parser.add_argument('--log-lr', type=str, default='epoch', help='learning rate log interval')
+parser.add_argument('--log-lr', type=boolify, default=True, help='learning rate log interval')
+parser.add_argument('--log-gpu-stats', type=boolify, default=False, help='whether to monitor gpu stats')
+parser.add_argument('--log-root', type=str, default='./lightning_logs', help='experiments logs root')
+parser.add_argument('--name', type=str, default=None, help='experiments logs root')
 parser.add_argument('--transfer', type=str, default=None, help='initial weights to transfer on')
 parser = LyftTrainerModule.add_model_specific_args(parser)
 parser = LyftDataModule.add_model_specific_args(parser)
@@ -20,27 +26,22 @@ if __name__ == '__main__':
 
     # initializing training
     callbacks = []
-    if args.log_lr:
-        callbacks.append(pl.callbacks.LearningRateMonitor(logging_interval=args.log_lr))
-
+    if args.log_lr and args.scheduler:
+        callbacks.append(pl.callbacks.LearningRateMonitor(logging_interval=args.scheduler_interval))
+    if args.log_gpu_stats and torch.cuda.is_available():
+        callbacks.append(pl.callbacks.GPUStatsMonitor())
+    Path(args.log_root).mkdir(parents=True, exist_ok=True)  # make sure log-root path exists
+    logger = loggers.TensorBoardLogger(save_dir=args.log_root, name='default' if not args.name else args.name,
+                                       default_hp_metric=False, log_graph=False)
     checkpoint = pl.callbacks.ModelCheckpoint(monitor='loss/val', save_last=True, verbose=True, mode='min')
-    trainer = pl.Trainer.from_argparse_args(args, checkpoint_callback=checkpoint, callbacks=callbacks)
+    trainer = pl.Trainer.from_argparse_args(args, checkpoint_callback=checkpoint, callbacks=callbacks, logger=logger)
     config = load_config_data(args.config)
-    training_procedure = LyftTrainerModule(
-        model=args.model, model_dict=args.model_dict, config=config, optimizer=args.optimizer,
-        optimizer_dict=args.optimizer_dict, modes=args.modes, lr=args.lr, scheduler=args.scheduler,
-        scheduler_dict=args.scheduler_dict, saliency_factor=args.saliency_factor,
-        saliency_intrest=args.saliency_intrest, saliency_dict=args.saliency_dict, pgd_iters=args.pgd_iters,
-        pgd_alpha=args.pgd_alpha, pgd_random_start=args.pgd_random_start, pgd_eps_vehicles=args.pgd_eps_vehicles,
-        pgd_eps_semantics=args.pgd_eps_semantics, track_grad=args.track_grad)
+    args_dict = vars(args)
+    args_dict['config'] = config
+    training_procedure = LyftTrainerModule(**args_dict)
     if args.transfer is not None:
         training_procedure.load_state_dict(torch.load(args.transfer)['state_dict'])
-        print(args.transfer, 'successfully loaded as initial weights')
-
-    training_procedure.datamodule = LyftDataModule(
-        config=training_procedure.hparams.config, data_root=args.data_root, train_split=args.train_split,
-        train_batch_size=args.train_batch_size, train_shuffle=args.train_shuffle,
-        train_num_workers=args.train_num_workers, train_idxs=args.train_idxs, val_proportion=args.val_proportion,
-        val_split=args.val_split, val_batch_size=args.val_batch_size, val_shuffle=args.val_shuffle,
-        val_num_workers=args.val_num_workers, val_idxs=args.val_idxs)
+        print(args.transfer, 'loaded as initial weights')
+    args_dict['config'] = training_procedure.hparams.config
+    training_procedure.datamodule = LyftDataModule(**args_dict)
     trainer.fit(training_procedure)
