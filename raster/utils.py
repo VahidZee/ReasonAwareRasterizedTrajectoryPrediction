@@ -9,8 +9,20 @@ def boolify(s):
     raise ValueError("cast error")
 
 
+def dictify(s: str):
+    if ':' not in s:
+        raise ValueError("cast error")
+    else:
+        res = dict()
+        pairs = s.split(',')
+        for pair in pairs:
+            key, val = pair.split(':')
+            res[key] = auto_cast(val)
+        return res
+
+
 def auto_cast(s):
-    for fn in (boolify, int, float):
+    for fn in (dictify, boolify, int, float):
         try:
             return fn(s)
         except ValueError:
@@ -27,4 +39,9 @@ class KeyValue(argparse.Action):
 
         for value in values:
             key, value = value.split('=')
-            getattr(namespace, self.dest)[key] = auto_cast(value)
+            if key in getattr(namespace, self.dest):
+                if not isinstance(getattr(namespace, self.dest)[key], list):
+                    getattr(namespace, self.dest)[key] = [getattr(namespace, self.dest)[key]]
+                getattr(namespace, self.dest)[key].append(auto_cast(value))
+            else:
+                getattr(namespace, self.dest)[key] = auto_cast(value)

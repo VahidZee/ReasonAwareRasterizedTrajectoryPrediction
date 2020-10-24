@@ -11,8 +11,11 @@ class RasterModel(torch.nn.Module, ABC):
         self.num_preds = self.modes * 2 * self.future_len
         self.out_dim = self.num_preds + (self.modes if self.modes != 1 else 0)
 
+    def _forward(self, x):
+        return self.model(x)
+
     def forward(self, x):
-        res = self.model(x)
+        res = self._forward(x)
         bs = x.shape[0]
         if self.modes != 1:
             pred, conf = torch.split(res, self.num_preds, dim=1)
