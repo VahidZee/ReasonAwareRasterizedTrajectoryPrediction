@@ -8,6 +8,7 @@ import pandas as pd
 from l5kit.rasterization import build_rasterizer
 from l5kit.data import LocalDataManager, ChunkedDataset
 from l5kit.dataset import AgentDataset
+import functools
 
 DEFAULT_BATCH_SIZE = 32
 DEFAULT_CACHE_SIZE = int(1e9)
@@ -34,16 +35,20 @@ class LyftDataModule(LightningDataModule):
             val_idxs: th.Any = None,
             # overall options
             cache_size: float = 1e9,
+            raster_cache_size: float = 8192,
+            **kwargs,
     ):
         super().__init__()
         self.data_root = data_root
         self.config = config
-        print('initializing up data module\n\t*root:', data_root)
+        print('initializing up data module\n\t*root:', data_root, '\t*cache:', cache_size, '\t*raster-cache:',
+              raster_cache_size)
 
         # train
         self.train_split = train_split or config['train_dataloader']['split']
         self.train_batch_size = train_batch_size or config['train_dataloader']['batch_size']
-        self.train_shuffle = train_shuffle or config['train_dataloader'].get('shuffle', True)
+        self.train_shuffle = train_shuffle if train_shuffle is not None else config['train_dataloader'].get(
+            'shuffle', True)
         self.train_num_workers = train_num_workers if train_num_workers is not None else config['train_dataloader'].get(
             'num_workers', DEFAULT_NUM_WORKERS)
         self.train_idxs = None if train_idxs is None else pd.read_csv(train_idxs)['idx']
@@ -54,7 +59,8 @@ class LyftDataModule(LightningDataModule):
         self.val_split = val_split or config.get('val_dataloader', dict()).get('split', None)
         self.val_batch_size = val_batch_size or config.get('val_dataloader', dict()).get(
             'batch_size', self.train_batch_size)
-        self.val_shuffle = val_shuffle or config.get('val_dataloader', dict()).get('shuffle', False)
+        self.val_shuffle = val_shuffle if val_shuffle is not None else config.get('val_dataloader', dict()).get(
+            'shuffle', False)
         self.val_num_workers = val_num_workers if val_num_workers is not None else config.get(
             'val_dataloader', dict()).get('num_workers', DEFAULT_NUM_WORKERS)
         self.val_idxs = None if val_idxs is None else pd.read_csv(val_idxs)['idx']
@@ -65,6 +71,7 @@ class LyftDataModule(LightningDataModule):
 
         # attributes
         self.cache_size = int(cache_size)
+        self.raster_cache_size = int(raster_cache_size) if raster_cache_size else 0
         self.data_manager = None
         self.rasterizer = None
         self.train_data = None
@@ -76,11 +83,12 @@ class LyftDataModule(LightningDataModule):
         if self.rasterizer is None:
             self.rasterizer = build_rasterizer(self.config, self.data_manager)
         if stage == 'fit' or stage is None:
+            if self.raster_cache_size:
+                AgentDataset.__getitem__ = functools.lru_cache(self.raster_cache_size)(AgentDataset.__getitem__)
             train_zarr = ChunkedDataset(self.data_manager.require(self.train_split)).open(
                 cache_size_bytes=int(self.cache_size))
             train_data = AgentDataset(self.config, train_zarr, self.rasterizer)
             if self.train_idxs is not None:
-                print('subsetting train data')
                 train_data = Subset(train_data, self.train_idxs)
             if self.val_split is None or self.val_split == self.train_split:
                 tl = len(train_data)
@@ -92,7 +100,6 @@ class LyftDataModule(LightningDataModule):
                     cache_size_bytes=int(self.cache_size))
                 self.val_data = AgentDataset(self.config, val_zarr, self.rasterizer)
                 if self.val_idxs is not None:
-                    print('subsetting val data')
                     self.val_data = Subset(self.val_data, self.val_idxs)
 
     def _get_dataloader(self, name: str, batch_size=None, num_workers=None, shuffle=None):
@@ -113,6 +120,7 @@ class LyftDataModule(LightningDataModule):
         parser = ArgumentParser(parents=[parent_parser], add_help=False)
         parser.add_argument('--data-root', required=True, type=str, help='lyft dataset root folder path')
         parser.add_argument('--cache-size', type=float, default=1e9, help='cache size for each data split')
+        parser.add_argument('--raster-cache-size', type=float, default=1e5, help='cache size for each data split')
 
         parser.add_argument('--train-split', type=str, default=None, help='train split scenes')
         parser.add_argument('--train-batch-size', type=int, help='train batch size of dataloaders')
