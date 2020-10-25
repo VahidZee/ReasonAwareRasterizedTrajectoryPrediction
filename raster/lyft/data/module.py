@@ -1,6 +1,6 @@
 from argparse import ArgumentParser
 import typing as th
-from raster.utils import boolify
+from raster.utils import boolify, CachedDataset
 from torch.utils.data import DataLoader, Subset, random_split
 from pytorch_lightning import LightningDataModule
 import pandas as pd
@@ -35,7 +35,7 @@ class LyftDataModule(LightningDataModule):
             val_idxs: th.Any = None,
             # overall options
             cache_size: float = 1e9,
-            raster_cache_size: float = 8192,
+            raster_cache_size: float = 0,
             **kwargs,
     ):
         super().__init__()
@@ -83,11 +83,11 @@ class LyftDataModule(LightningDataModule):
         if self.rasterizer is None:
             self.rasterizer = build_rasterizer(self.config, self.data_manager)
         if stage == 'fit' or stage is None:
-            if self.raster_cache_size:
-                AgentDataset.__getitem__ = functools.lru_cache(self.raster_cache_size)(AgentDataset.__getitem__)
+
             train_zarr = ChunkedDataset(self.data_manager.require(self.train_split)).open(
                 cache_size_bytes=int(self.cache_size))
             train_data = AgentDataset(self.config, train_zarr, self.rasterizer)
+
             if self.train_idxs is not None:
                 train_data = Subset(train_data, self.train_idxs)
             if self.val_split is None or self.val_split == self.train_split:
@@ -101,6 +101,9 @@ class LyftDataModule(LightningDataModule):
                 self.val_data = AgentDataset(self.config, val_zarr, self.rasterizer)
                 if self.val_idxs is not None:
                     self.val_data = Subset(self.val_data, self.val_idxs)
+            if self.raster_cache_size:
+                self.train_data = CachedDataset(self.train_data, self.raster_cache_size)
+                self.val_data = CachedDataset(self.val_data, self.raster_cache_size)
 
     def _get_dataloader(self, name: str, batch_size=None, num_workers=None, shuffle=None):
         batch_size = batch_size or getattr(self, f'{name}_batch_size')
@@ -120,7 +123,7 @@ class LyftDataModule(LightningDataModule):
         parser = ArgumentParser(parents=[parent_parser], add_help=False)
         parser.add_argument('--data-root', required=True, type=str, help='lyft dataset root folder path')
         parser.add_argument('--cache-size', type=float, default=1e9, help='cache size for each data split')
-        parser.add_argument('--raster-cache-size', type=float, default=1e5, help='cache size for each data split')
+        parser.add_argument('--raster-cache-size', type=float, default=0., help='cache size for each data split')
 
         parser.add_argument('--train-split', type=str, default=None, help='train split scenes')
         parser.add_argument('--train-batch-size', type=int, help='train batch size of dataloaders')

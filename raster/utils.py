@@ -1,4 +1,21 @@
 import argparse
+from torch.utils.data import Dataset
+import functools
+
+
+class CachedDataset(Dataset):
+    def __init__(self, dataset, cache_size=16384):
+        self.dataset = dataset
+        self.get_item = functools.lru_cache(cache_size)(self.get_item)
+
+    def __len__(self):
+        return len(self.dataset)
+
+    def get_item(self, i):
+        return self.dataset[i]
+
+    def __getitem__(self, i):
+        return self.get_item(i)
 
 
 def boolify(s):

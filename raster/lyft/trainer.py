@@ -12,6 +12,7 @@ from l5kit.configs import load_config_data
 from .saliency_supervision import SaliencySupervision
 from .utils import find_batch_extremes, filter_batch, neg_multi_log_likelihood
 from argparse import ArgumentParser
+from pytorch_lightning.utilities.distributed import rank_zero_only
 
 
 class LyftTrainerModule(pl.LightningModule, ABC):
@@ -54,11 +55,16 @@ class LyftTrainerModule(pl.LightningModule, ABC):
         # optimization & scheduling
         self.lr = self.hparams.lr
         self.track_grad = self.hparams.track_grad
+        self.val_hparams = 0.
 
-    def on_fit_start(self):
-        metrics = ['loss', 'nll', 'grads/total', 'saliency']
+    @rank_zero_only  # todo check
+    def init_hparam_logs(self):
+        metrics = ['loss', 'nll', 'grads/total']
+        val = 1e3  # todo must not affect graphs
         metric_placeholder = {
-            **{f'{m}/train': -1 for m in metrics}, **{f'{m}/val': -1 for m in metrics}}
+            **{f'{m}/train': val for m in metrics}, **{f'{m}/val': val for m in metrics},
+            'saliency/val': 0., 'saliency/train': 0.,
+        }
         self.logger.log_hyperparams(self.hparams, metrics=metric_placeholder)
 
     def pgd_attack(self, inputs, outputs, target_availabilities=None, return_loss=True):
@@ -147,6 +153,8 @@ class LyftTrainerModule(pl.LightningModule, ABC):
 
     def step(self, batch, batch_idx, optimizer_idx=None, name='train'):
         is_val = name == 'val'
+        if self.global_step == 0:
+            self.init_hparam_logs()
         result = self(batch['image'], batch['target_positions'], batch.get('target_availabilities', None),
                       return_results=True, attack=not is_val)
         for item, value in result.items():
