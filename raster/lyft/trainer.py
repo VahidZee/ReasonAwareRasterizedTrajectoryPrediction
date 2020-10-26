@@ -50,8 +50,9 @@ class LyftTrainerModule(pl.LightningModule, ABC):
         self.model = getattr(models, self.hparams.model)(config=self.hparams.config, modes=self.hparams.modes,
                                                          **(self.hparams.model_dict or dict()))
         # saliency
-        self.saliency = SaliencySupervision(self.hparams.saliency_intrest, **(self.hparams.saliency_dict or dict())
-                                            ) if self.hparams.saliency_factor else None
+        self.saliency = SaliencySupervision(
+            self.hparams.config, self.hparams.saliency_intrest, **(self.hparams.saliency_dict or dict())
+        ) if self.hparams.saliency_factor else None
         # optimization & scheduling
         self.lr = self.hparams.lr
         self.track_grad = self.hparams.track_grad
@@ -128,7 +129,8 @@ class LyftTrainerModule(pl.LightningModule, ABC):
         pred, conf = self.model(inputs)
         nll = neg_multi_log_likelihood(targets, pred, conf, target_availabilities)
         if (self.hparams.saliency_factor or self.track_grad) and grad_enabled:
-            grads = torch.autograd.grad(nll.unbind(), inputs, create_graph=bool(self.hparams.saliency_factor))[0]
+            grads = torch.autograd.grad(
+                nll.unbind(), inputs, create_graph=bool(self.hparams.saliency_factor), retain_graph=True)[0]
             res['grads/semantics'] = grads.data[:, -3:].abs().sum()
             res['grads/vehicles'] = grads.data[:, :-3].abs().sum()
             res['grads/total'] = res['grads/semantics'] + res['grads/vehicles']
