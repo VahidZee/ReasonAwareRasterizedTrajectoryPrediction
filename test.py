@@ -12,9 +12,8 @@ parser = argparse.ArgumentParser(description='Manage running job')
 parser.add_argument('--seed', type=int, default=313, help='random seed to use')
 parser.add_argument('--config', type=str, required=True, help='config yaml path')
 parser.add_argument('--checkpoint-path', type=str, default=None, help='initial weights to transfer on')
-parser.add_argument('--transfer', type=str, default=None, help='initial weights to transfer on')
 parser.add_argument('--challenge-submission', type=boolify, default=False, help='results for submission')
-parser.add_argument('--test-csv-path', type=str, default=None, help='whether to save result of test')
+parser.add_argument('--test-csv-path', type=str, default=None, help='where to save result of test')
 
 parser = LyftTrainerModule.add_model_specific_args(parser)
 parser = LyftDataModule.add_model_specific_args(parser)
@@ -29,13 +28,15 @@ if __name__ == '__main__':
     trainer = pl.Trainer.from_argparse_args(args, checkpoint_callback=False, logger=False)
     config = load_config_data(args.config)
     args_dict = vars(args)
+    print(args_dict['test_csv_path'])
     args_dict['config'] = config
-    training_procedure = LyftTrainerModule(**args_dict)
-    if args.transfer is not None:
-        training_procedure.load_state_dict(torch.load(args.transfer)['state_dict'])
-        print(args.transfer, 'loaded as initial weights')
+    training_procedure = LyftTrainerModule.load_from_checkpoint(checkpoint_path=args_dict['checkpoint_path'])
+    # if args.transfer is not None:
+    #     training_procedure.load_state_dict(torch.load(args.transfer)['state_dict'])
+    #     print(args.transfer, 'loaded as initial weights')
     args_dict['config'] = training_procedure.hparams.config
     training_procedure.datamodule = LyftDataModule(**args_dict)
+    print(args_dict['test_csv_path'])
     trainer.test(training_procedure)
     if args_dict['challenge_submission']:
         validate_csv = pd.read_csv(args_dict['test_csv_path']+"/full_result.csv")

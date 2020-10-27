@@ -140,7 +140,7 @@ class LyftDataModule(LightningDataModule):
             test_data = AgentDataset(self.config, test_zarr, self.rasterizer)
             if self.test_idxs is not None:
                 test_data = Subset(test_data, self.test_idxs)
-                self.test_data = Indexed_Dataset(test_data, self.test_idxs)
+                self.test_data = IndexedDataset(test_data, self.test_idxs)
 
     def _get_dataloader(self, name: str, batch_size=None, num_workers=None, shuffle=None):
         batch_size = batch_size or getattr(self, f'{name}_batch_size')

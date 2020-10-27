@@ -15,7 +15,7 @@ from argparse import ArgumentParser
 from pytorch_lightning.utilities.distributed import rank_zero_only
 
 from pathlib import Path
-
+import argparse
 
 class LyftTrainerModule(pl.LightningModule, ABC):
     def __init__(
@@ -62,6 +62,7 @@ class LyftTrainerModule(pl.LightningModule, ABC):
         self.val_hparams = 0.
 
         #csv for test
+        self.test_csv_path = test_csv_path
         self.writer = None
         self.confs_keys = None
         self.coords_keys_list = None
@@ -203,11 +204,10 @@ class LyftTrainerModule(pl.LightningModule, ABC):
         result = self.step(batch[0], batch_idx, name='test')
         result['idx'] = batch[1]
         if not self.writer:
-            Path(self.hparams.test_csv_path).mkdir(parents=True, exist_ok=True)
+            Path(self.test_csv_path).mkdir(parents=True, exist_ok=True)
             self.writer, self.confs_keys, self.coords_keys_list = write_pred_csv_header(
-                csv_path=self.hparams.test_csv_path ,
-                future_len=self.hparams.config['model_params']['future_num_frames'],
-                challenge_submission= self.hparams.test_csv_path)
+                csv_path=self.test_csv_path ,
+                future_len=self.hparams.config['model_params']['future_num_frames'])
         write_pred_csv_data(self.writer, self.confs_keys, self.coords_keys_list, batch[0]["timestamp"], batch[0]["track_id"], result)
         return None
 

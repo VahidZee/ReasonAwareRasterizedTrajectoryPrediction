@@ -120,7 +120,6 @@ def _generate_confs_keys() -> List[str]:
 def write_pred_csv_header(
     csv_path: str,
     future_len: int,
-    challenge_submission: bool,
 ):
 
     coords_keys_list = [_generate_coords_keys(future_len, mode_index=idx) for idx in range(MAX_MODES)]
