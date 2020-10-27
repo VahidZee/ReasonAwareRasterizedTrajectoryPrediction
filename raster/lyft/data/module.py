@@ -15,7 +15,7 @@ DEFAULT_CACHE_SIZE = int(1e9)
 DEFAULT_NUM_WORKERS = 4
 
 
-class Indexed_Dataset(Dataset):
+class IndexedDataset(Dataset):
 
     def __init__(self, data, indexes,transform=None):
         self.data = data
