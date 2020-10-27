@@ -10,9 +10,13 @@ from raster.utils import KeyValue, boolify
 from l5kit.configs import load_config_data
 
 from .saliency_supervision import SaliencySupervision
-from .utils import find_batch_extremes, filter_batch, neg_multi_log_likelihood
+from .utils import find_batch_extremes, filter_batch, neg_multi_log_likelihood, write_pred_csv_header, \
+    write_pred_csv_data
 from argparse import ArgumentParser
 from pytorch_lightning.utilities.distributed import rank_zero_only
+
+from pathlib import Path
+import argparse
 
 
 class LyftTrainerModule(pl.LightningModule, ABC):
@@ -41,6 +45,7 @@ class LyftTrainerModule(pl.LightningModule, ABC):
             pgd_eps_vehicles: float = 0.4,
             pgd_eps_semantics: float = 0.15625,
             track_grad: bool = False,
+            test_csv_path: str = None,
             **kwargs,
     ):
         super().__init__()
@@ -58,6 +63,12 @@ class LyftTrainerModule(pl.LightningModule, ABC):
         self.track_grad = self.hparams.track_grad
         self.val_hparams = 0.
 
+        # test variables
+        self.test_csv_path = test_csv_path
+        self.writer = None
+        self.confs_keys = None
+        self.coords_keys_list = None
+
     @rank_zero_only  # todo check
     def init_hparam_logs(self):
         metrics = ['loss', 'nll', 'grads/total']
@@ -66,7 +77,8 @@ class LyftTrainerModule(pl.LightningModule, ABC):
             **{f'{m}/train': val for m in metrics}, **{f'{m}/val': val for m in metrics},
             'saliency/val': 0., 'saliency/train': 0.,
         }
-        self.logger.log_hyperparams(self.hparams, metrics=metric_placeholder)
+        if self.logger:
+            self.logger.log_hyperparams(self.hparams, metrics=metric_placeholder)
 
     def pgd_attack(self, inputs, outputs, target_availabilities=None, return_loss=True):
         targets = outputs
@@ -113,7 +125,7 @@ class LyftTrainerModule(pl.LightningModule, ABC):
         return (inputs.detach() + delta.detach()).clamp(0, 1.)
 
     def forward(self, inputs, targets: torch.Tensor, target_availabilities: torch.Tensor = None, return_results=True,
-                grad_enabled=True, attack=True):
+                grad_enabled=True, attack=True, return_trajectory=False):
         torch.set_grad_enabled(grad_enabled)
         res = dict()
         perf_attack = self.hparams.pgd_iters and attack
@@ -131,10 +143,14 @@ class LyftTrainerModule(pl.LightningModule, ABC):
         if (self.hparams.saliency_factor or self.track_grad) and grad_enabled:
             grads = torch.autograd.grad(
                 nll.unbind(), inputs, create_graph=bool(self.hparams.saliency_factor), retain_graph=True)[0]
-            res['grads/semantics'] = grads.data[:, -3:].abs().sum()
-            res['grads/vehicles'] = grads.data[:, :-3].abs().sum()
+            axis = [1, 2, 3] if return_trajectory else [0, 1, 2, 3]
+            res['grads/semantics'] = grads.data[:, -3:].abs().sum(axis=axis)
+            res['grads/vehicles'] = grads.data[:, :-3].abs().sum(axis=axis)
             res['grads/total'] = res['grads/semantics'] + res['grads/vehicles']
-        res['nll'] = nll.mean()
+        if return_trajectory:
+            res['nll'] = nll
+        else:
+            res['nll'] = nll.mean()
         if reg_pgd:
             adv_nll = neg_multi_log_likelihood(pred.detach() if self.hparams.pgd_mode == 'negative_sample' else targets,
                                                *self.model(adv_inputs), target_availabilities)
@@ -142,25 +158,41 @@ class LyftTrainerModule(pl.LightningModule, ABC):
         if self.hparams.saliency_factor and grad_enabled:
             sal_res = self.saliency(grads)
             if not reg_pgd:
-                res['loss'] = ((1 - sal_res) * self.hparams.saliency_factor * nll.detach() + nll).mean()
+                loss = ((1 - sal_res) * self.hparams.saliency_factor * nll.detach() + nll).mean()
+                res['loss'] = ((1 - sal_res) * self.hparams.saliency_factor * nll.detach() + nll)
             else:
-                res['loss'] = ((1 - sal_res) * self.hparams.saliency_factor * nll.detach() + nll
-                               + self.hparams.pgd_reg_factor * adv_nll).mean()
-            res['saliency'] = sal_res.mean()
+                loss = ((1 - sal_res) * self.hparams.saliency_factor * nll.detach() + nll
+                        + self.hparams.pgd_reg_factor * adv_nll)
+            if return_trajectory:
+                res['saliency'] = sal_res
+            else:
+                res['saliency'] = sal_res.mean()
         else:
-            res['loss'] = nll.mean() if not reg_pgd else (nll + self.hparams.pgd_reg_factor * adv_nll).mean()
+            loss = nll if not reg_pgd else (nll + self.hparams.pgd_reg_factor * adv_nll)
+        if return_trajectory:
+            res['loss'] = loss
+        else:
+            res['loss'] = loss.mean()
+        if return_trajectory:
+            res['pred'] = pred
+            res['conf'] = conf
         if return_results:
             return res
         return res['loss']
 
     def step(self, batch, batch_idx, optimizer_idx=None, name='train'):
         is_val = name == 'val'
+        is_test = name == 'test'
         if self.global_step == 0:
             self.init_hparam_logs()
         result = self(batch['image'], batch['target_positions'], batch.get('target_availabilities', None),
-                      return_results=True, attack=not is_val)
+                      return_results=True, attack=not (is_val or is_test), return_trajectory=is_test)
+        # if not is_test:
         for item, value in result.items():
-            self.log(f'{item}/{name}', value.mean(), on_step=not is_val, on_epoch=is_val, logger=True, sync_dist=True)
+            self.log(f'{item}/{name}', value.mean(), on_step=not (is_val or is_test), on_epoch=is_val or is_test,
+                     logger=True, sync_dist=True)
+        if is_test:
+            return result
         if not is_val:
             return result['loss']
 
@@ -169,6 +201,18 @@ class LyftTrainerModule(pl.LightningModule, ABC):
 
     def validation_step(self, batch, batch_idx):
         return self.step(batch, batch_idx, name='val')
+
+    def test_step(self, batch, batch_idx):
+        result = self.step(batch[0], batch_idx, name='test')
+        result['idx'] = batch[1]
+        if not self.writer:
+            Path(self.test_csv_path).mkdir(parents=True, exist_ok=True)
+            self.writer, self.confs_keys, self.coords_keys_list = write_pred_csv_header(
+                csv_path=self.test_csv_path,
+                future_len=self.hparams.config['model_params']['future_num_frames'])
+        write_pred_csv_data(self.writer, self.confs_keys, self.coords_keys_list, batch[0]["timestamp"],
+                            batch[0]["track_id"], result)
+        return None
 
     def configure_optimizers(self):
         opt_class, opt_dict = torch.optim.Adam, {'lr': self.lr}
