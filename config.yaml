@@ -8,7 +8,7 @@ model_params:
   history_step_size: 1
   history_delta_time: 0.1
 
-  future_num_frames: 25
+  future_num_frames: 50
   future_step_size: 1
   future_delta_time: 0.1
 
@@ -45,12 +45,18 @@ raster_params:
 ## Data loader options
 train_dataloader:
   split: "scenes/sample.zarr"
-  batch_size: 16
+  batch_size: 2
   shuffle: True
   num_workers: 0
 
 val_dataloader:
   split: "scenes/sample.zarr"
-  batch_size: 16
+  batch_size: 2
+  shuffle: False
+  num_workers: 0
+
+test_dataloader:
+  split: "scenes/sample.zarr"
+  batch_size: 2
   shuffle: False
   num_workers: 0

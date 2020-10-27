@@ -1,7 +1,7 @@
 from argparse import ArgumentParser
 import typing as th
 from raster.utils import boolify, CachedDataset
-from torch.utils.data import DataLoader, Subset, random_split
+from torch.utils.data import DataLoader, Subset, random_split, Dataset
 from pytorch_lightning import LightningDataModule
 import pandas as pd
 
@@ -13,6 +13,19 @@ import functools
 DEFAULT_BATCH_SIZE = 32
 DEFAULT_CACHE_SIZE = int(1e9)
 DEFAULT_NUM_WORKERS = 4
+
+
+class Indexed_Dataset(Dataset):
+
+    def __init__(self, data, indexes,transform=None):
+        self.data = data
+        self.indexes = indexes
+
+    def __len__(self):
+        return len(self.indexes)
+
+    def __getitem__(self, idx):
+        return self.data[idx], self.indexes[idx]
 
 
 class LyftDataModule(LightningDataModule):
@@ -33,6 +46,12 @@ class LyftDataModule(LightningDataModule):
             val_shuffle: bool = None,
             val_num_workers: int = None,
             val_idxs: th.Any = None,
+            # test
+            test_split: str = None,
+            test_batch_size: str = None,
+            test_shuffle: bool = None,
+            test_num_workers: int = None,
+            test_idxs: th.Any = None,
             # overall options
             cache_size: float = 1e9,
             raster_cache_size: float = 0,
@@ -68,6 +87,17 @@ class LyftDataModule(LightningDataModule):
             'validation proportion should not be None'
         print('val\n\t*split:', self.val_split, '*batch_size:', self.val_batch_size, '*shuffle:', self.val_shuffle,
               '*num_workers:', self.val_num_workers, '*idxs:', val_idxs, '*proportion:', self.val_proportion)
+        # test
+        self.test_split = test_split or config.get('test_dataloader', dict()).get('split', None)
+        self.test_batch_size = test_batch_size or config.get('test_dataloader', dict()).get(
+            'batch_size', None)
+        self.test_shuffle = test_shuffle if test_shuffle is not None else config.get('test_dataloader', dict()).get(
+            'shuffle', False)
+        self.test_num_workers = test_num_workers if test_num_workers is not None else config.get(
+            'test_dataloader', dict()).get('num_workers', DEFAULT_NUM_WORKERS)
+        self.test_idxs = None if test_idxs is None else pd.read_csv(test_idxs)['idx']
+        print('test\n\t*split:', self.test_split, '*batch_size:', self.test_batch_size, '*shuffle:', self.test_shuffle,
+              '*num_workers:', self.test_num_workers, '*idxs:', test_idxs)
 
         # attributes
         self.cache_size = int(cache_size)
@@ -76,6 +106,7 @@ class LyftDataModule(LightningDataModule):
         self.rasterizer = None
         self.train_data = None
         self.val_data = None
+        self.test_data = None
 
     def setup(self, stage=None):
         if self.data_manager is None:
@@ -83,7 +114,6 @@ class LyftDataModule(LightningDataModule):
         if self.rasterizer is None:
             self.rasterizer = build_rasterizer(self.config, self.data_manager)
         if stage == 'fit' or stage is None:
-
             train_zarr = ChunkedDataset(self.data_manager.require(self.train_split)).open(
                 cache_size_bytes=int(self.cache_size))
             train_data = AgentDataset(self.config, train_zarr, self.rasterizer)
@@ -104,6 +134,13 @@ class LyftDataModule(LightningDataModule):
             if self.raster_cache_size:
                 self.train_data = CachedDataset(self.train_data, self.raster_cache_size)
                 self.val_data = CachedDataset(self.val_data, self.raster_cache_size)
+        if stage == 'test' or stage is None:
+            test_zarr = ChunkedDataset(self.data_manager.require(self.train_split)).open(
+                cache_size_bytes=int(self.cache_size))
+            test_data = AgentDataset(self.config, test_zarr, self.rasterizer)
+            if self.test_idxs is not None:
+                test_data = Subset(test_data, self.test_idxs)
+                self.test_data = Indexed_Dataset(test_data, self.test_idxs)
 
     def _get_dataloader(self, name: str, batch_size=None, num_workers=None, shuffle=None):
         batch_size = batch_size or getattr(self, f'{name}_batch_size')
@@ -117,6 +154,9 @@ class LyftDataModule(LightningDataModule):
 
     def val_dataloader(self, batch_size=None, num_workers=None, shuffle=None):
         return self._get_dataloader('val', batch_size=batch_size, num_workers=num_workers, shuffle=shuffle)
+
+    def test_dataloader(self, batch_size=None, num_workers=None, shuffle=False):
+        return self._get_dataloader('test', batch_size=batch_size, num_workers=num_workers, shuffle=shuffle)
 
     @staticmethod
     def add_model_specific_args(parent_parser):
@@ -137,4 +177,10 @@ class LyftDataModule(LightningDataModule):
         parser.add_argument('--val-shuffle', type=boolify, default=None, help='validation dataloader shuffle data')
         parser.add_argument('--val-num-workers', type=int, default=None, help='validation dataloader number of workers')
         parser.add_argument('--val-idxs', type=str, default=None, help='validation data indexes')
+
+        parser.add_argument('--test-split', type=str, default=None, help='test split scenes')
+        parser.add_argument('--test-batch-size', type=int, help='test batch size of dataloaders')
+        parser.add_argument('--test-shuffle', type=boolify, default=None, help='test dataloader shuffle data')
+        parser.add_argument('--test-num-workers', type=int, default=None, help='test dataloader number of workers')
+        parser.add_argument('--test-idxs', type=str, default=None, help='test data indexes')
         return parser
