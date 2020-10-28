@@ -4,6 +4,7 @@ from raster.utils import boolify, CachedDataset
 from torch.utils.data import DataLoader, Subset, random_split, Dataset
 from pytorch_lightning import LightningDataModule
 import pandas as pd
+import numpy as np
 
 from l5kit.rasterization import build_rasterizer
 from l5kit.data import LocalDataManager, ChunkedDataset
@@ -52,6 +53,7 @@ class LyftDataModule(LightningDataModule):
             test_shuffle: bool = None,
             test_num_workers: int = None,
             test_idxs: th.Any = None,
+            test_mask_path: str = None,
             # overall options
             cache_size: float = 1e9,
             raster_cache_size: float = 0,
@@ -96,6 +98,9 @@ class LyftDataModule(LightningDataModule):
         self.test_num_workers = test_num_workers if test_num_workers is not None else config.get(
             'test_dataloader', dict()).get('num_workers', DEFAULT_NUM_WORKERS)
         self.test_idxs = None if test_idxs is None else pd.read_csv(test_idxs)['idx']
+        self.test_mask = None
+        if not test_mask_path:
+            self.test_mask = np.load(test_mask_path)["arr_0"]
         print('test\n\t*split:', self.test_split, '*batch_size:', self.test_batch_size, '*shuffle:', self.test_shuffle,
               '*num_workers:', self.test_num_workers, '*idxs:', test_idxs)
 
@@ -137,7 +142,10 @@ class LyftDataModule(LightningDataModule):
         if stage == 'test' or stage is None:
             test_zarr = ChunkedDataset(self.data_manager.require(self.train_split)).open(
                 cache_size_bytes=int(self.cache_size))
-            test_data = AgentDataset(self.config, test_zarr, self.rasterizer)
+            if self.test_mask:
+                test_data = AgentDataset(self.config, test_zarr, self.rasterizer, agents_mask=self.test_mask)
+            else:
+                test_data = AgentDataset(self.config, test_zarr, self.rasterizer)
             if self.test_idxs is not None:
                 test_data = Subset(test_data, self.test_idxs)
                 self.test_data = IndexedDataset(test_data, self.test_idxs)
