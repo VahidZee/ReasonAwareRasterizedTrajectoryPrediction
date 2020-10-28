@@ -18,7 +18,7 @@ DEFAULT_NUM_WORKERS = 4
 
 class IndexedDataset(Dataset):
 
-    def __init__(self, data, indexes,transform=None):
+    def __init__(self, data, indexes, transform=None):
         self.data = data
         self.indexes = indexes
 
@@ -98,9 +98,7 @@ class LyftDataModule(LightningDataModule):
         self.test_num_workers = test_num_workers if test_num_workers is not None else config.get(
             'test_dataloader', dict()).get('num_workers', DEFAULT_NUM_WORKERS)
         self.test_idxs = None if test_idxs is None else pd.read_csv(test_idxs)['idx']
-        self.test_mask = None
-        if not test_mask_path:
-            self.test_mask = np.load(test_mask_path)["arr_0"]
+        self.test_mask = None if test_mask_path else np.load(test_mask_path)["arr_0"]
         print('test\n\t*split:', self.test_split, '*batch_size:', self.test_batch_size, '*shuffle:', self.test_shuffle,
               '*num_workers:', self.test_num_workers, '*idxs:', test_idxs)
 
