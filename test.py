@@ -15,6 +15,7 @@ parser.add_argument('--checkpoint-path', type=str, default=None, help='initial w
 parser.add_argument('--challenge-submission', type=boolify, default=False,
                     help='whether test is for challenge submission')
 parser.add_argument('--test-csv-path', type=str, default=None, help='where to save result of test')
+parser.add_argument('--test-mask-path', type=str, default=None, help='mask applied over test')
 
 parser = LyftTrainerModule.add_model_specific_args(parser)
 parser = LyftDataModule.add_model_specific_args(parser)
