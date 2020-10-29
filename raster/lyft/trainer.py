@@ -160,8 +160,7 @@ class LyftTrainerModule(pl.LightningModule, ABC):
         if self.hparams.saliency_factor and grad_enabled:
             sal_res = self.saliency(grads)
             if not reg_pgd:
-                loss = ((1 - sal_res) * self.hparams.saliency_factor * nll.detach() + nll).mean()
-                res['loss'] = ((1 - sal_res) * self.hparams.saliency_factor * nll.detach() + nll)
+                loss = (1 - sal_res) * self.hparams.saliency_factor * nll.detach() + nll
             else:
                 loss = ((1 - sal_res) * self.hparams.saliency_factor * nll.detach() + nll
                         + self.hparams.pgd_reg_factor * adv_nll)
