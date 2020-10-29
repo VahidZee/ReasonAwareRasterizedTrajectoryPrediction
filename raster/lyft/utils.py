@@ -144,8 +144,8 @@ def write_pred_csv_data(
     result,
 ) -> None:
 
-    coords = result["pred"].detach().numpy().copy()
-    confs = result["conf"].detach().numpy().copy()
+    coords = result["pred"].cpu().detach().numpy().copy()
+    confs = result["conf"].cpu().detach().numpy().copy()
     assert len(coords.shape) in [3, 4]
 
     if len(coords.shape) == 3:
@@ -166,10 +166,10 @@ def write_pred_csv_data(
     confs_padded = np.zeros((num_example, MAX_MODES), dtype=confs.dtype)
     confs_padded[:, :num_modes] = confs
 
-    for idx, gs, gv, gt, nll, loss, timestamp, track_id, coord, conf in zip(result["idx"].numpy().copy(), result["grads/semantics"].numpy().copy(),
-                                                                            result["grads/vehicles"].numpy().copy(), result["grads/total"].numpy().copy(),
-                                                                            result["nll"].detach().numpy().copy(), result["loss"].detach().numpy().copy(),
-                                                                            timestamps.numpy().copy(), track_ids.numpy().copy(), coords_padded, confs_padded):
+    for idx, gs, gv, gt, nll, loss, timestamp, track_id, coord, conf in zip(result["idx"].cpu().numpy().copy(), result["grads/semantics"].cpu().numpy().copy(),
+                                                                            result["grads/vehicles"].cpu().numpy().copy(), result["grads/total"].cpu().numpy().copy(),
+                                                                            result["nll"].cpu().detach().numpy().copy(), result["loss"].cpu().detach().numpy().copy(),
+                                                                            timestamps.cpu().numpy().copy(), track_ids.cpu().numpy().copy(), coords_padded, confs_padded):
         line = {"idx": idx, "grads/semantics": gs, "grads/vehicles": gv, "grads/total": gt, "nll": nll, "loss": loss, "timestamp": timestamp, "track_id": track_id}
         line.update({key: con for key, con in zip(confs_keys, conf)})
 
