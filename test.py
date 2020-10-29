@@ -31,7 +31,7 @@ if __name__ == '__main__':
     config = load_config_data(args.config)
     args_dict = vars(args)
     args_dict['config'] = config
-    training_procedure = LyftTrainerModule.load_from_checkpoint( **args_dict)
+    training_procedure = LyftTrainerModule.load_from_checkpoint(checkpoint_path=args_dict['checkpoint_path'], test_csv_path =args_dict['test_csv_path'])
     args_dict['config'] = training_procedure.hparams.config
     training_procedure.datamodule = LyftDataModule(**args_dict)
     trainer.test(training_procedure)

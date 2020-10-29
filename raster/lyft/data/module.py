@@ -99,7 +99,7 @@ class LyftDataModule(LightningDataModule):
             'test_dataloader', dict()).get('num_workers', DEFAULT_NUM_WORKERS)
         self.test_idxs = None if test_idxs is None else pd.read_csv(test_idxs)['idx']
         self.test_mask = None
-        if not test_mask_path:
+        if test_mask_path:
             self.test_mask = np.load(test_mask_path)["arr_0"]
         print('test\n\t*split:', self.test_split, '*batch_size:', self.test_batch_size, '*shuffle:', self.test_shuffle,
               '*num_workers:', self.test_num_workers, '*idxs:', test_idxs)
@@ -148,7 +148,9 @@ class LyftDataModule(LightningDataModule):
                 test_data = AgentDataset(self.config, test_zarr, self.rasterizer)
             if self.test_idxs is not None:
                 test_data = Subset(test_data, self.test_idxs)
-                self.test_data = IndexedDataset(test_data, self.test_idxs)
+            else:
+                self.test_idxs = np.arange(start=1, stop=len(test_data) + 1)
+            self.test_data = IndexedDataset(test_data, self.test_idxs)
 
     def _get_dataloader(self, name: str, batch_size=None, num_workers=None, shuffle=None):
         batch_size = batch_size or getattr(self, f'{name}_batch_size')
