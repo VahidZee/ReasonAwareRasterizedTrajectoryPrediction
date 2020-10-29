@@ -18,7 +18,7 @@ DEFAULT_NUM_WORKERS = 4
 
 class IndexedDataset(Dataset):
 
-    def __init__(self, data, indexes,transform=None):
+    def __init__(self, data, indexes, transform=None):
         self.data = data
         self.indexes = indexes
 
