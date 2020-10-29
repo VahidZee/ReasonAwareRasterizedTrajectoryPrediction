@@ -181,7 +181,6 @@ class LyftTrainerModule(pl.LightningModule, ABC):
             centroids = centroid.cpu().numpy()
             coords_offset = []
             for agent_coords, world_from_agent, centroid in zip(agents_coords, world_from_agents, centroids):
-                # print(agent_coords.shape,world_from_agent.shape)
                 one_agent_cord = []
                 for agent_coord in agent_coords:
                     one_agent_cord.append(transform_points(agent_coord, world_from_agent) - centroid[:2])
