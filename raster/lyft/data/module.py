@@ -140,7 +140,7 @@ class LyftDataModule(LightningDataModule):
                 self.train_data = CachedDataset(self.train_data, self.raster_cache_size)
                 self.val_data = CachedDataset(self.val_data, self.raster_cache_size)
         if stage == 'test' or stage is None:
-            test_zarr = ChunkedDataset(self.data_manager.require(self.train_split)).open(
+            test_zarr = ChunkedDataset(self.data_manager.require(self.test_split)).open(
                 cache_size_bytes=int(self.cache_size))
             if self.test_mask is not None:
                 test_data = AgentDataset(self.config, test_zarr, self.rasterizer, agents_mask=self.test_mask)
