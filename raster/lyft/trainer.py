@@ -196,7 +196,6 @@ class LyftTrainerModule(pl.LightningModule, ABC):
         is_test = name == 'test'
         if self.global_step == 0:
             self.init_hparam_logs()
-        print(batch.keys())
         result = self(batch['image'], batch['target_positions'], batch.get('target_availabilities', None),
                       world_from_agent=batch["world_from_agent"], centroid=batch["centroid"],
                       return_results=True, attack=not (is_val or is_test), return_trajectory=is_test)
