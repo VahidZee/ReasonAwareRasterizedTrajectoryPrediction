@@ -144,7 +144,7 @@ def write_pred_csv_data(
     result,
 ) -> None:
 
-    coords = result["pred"].cpu().detach().numpy().copy()
+    coords = result["pred"]
     confs = result["conf"].cpu().detach().numpy().copy()
     assert len(coords.shape) in [3, 4]
 

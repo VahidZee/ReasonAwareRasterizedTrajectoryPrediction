@@ -16,6 +16,8 @@ from argparse import ArgumentParser
 from pytorch_lightning.utilities.distributed import rank_zero_only
 
 from pathlib import Path
+from l5kit.geometry import transform_points
+import numpy as np
 import argparse
 
 
@@ -124,7 +126,7 @@ class LyftTrainerModule(pl.LightningModule, ABC):
             return (inputs.detach() + delta.detach()).clamp(0, 1.), init_loss, final_loss
         return (inputs.detach() + delta.detach()).clamp(0, 1.)
 
-    def forward(self, inputs, targets: torch.Tensor, target_availabilities: torch.Tensor = None, return_results=True,
+    def forward(self, inputs, targets: torch.Tensor, target_availabilities: torch.Tensor = None, world_from_agent: torch.Tensor = None, centroid: torch.Tensor = None, return_results=True,
                 grad_enabled=True, attack=True, return_trajectory=False):
         torch.set_grad_enabled(grad_enabled)
         res = dict()
@@ -174,7 +176,17 @@ class LyftTrainerModule(pl.LightningModule, ABC):
         else:
             res['loss'] = loss.mean()
         if return_trajectory:
-            res['pred'] = pred
+            agents_coords = pred.cpu().detach().numpy().copy()
+            world_from_agents = world_from_agent.cpu().numpy()
+            centroids = centroid.cpu().numpy()
+            coords_offset = []
+            for agent_coords, world_from_agent, centroid in zip(agents_coords, world_from_agents, centroids):
+                # print(agent_coords.shape,world_from_agent.shape)
+                one_agent_cord = []
+                for agent_coord in agent_coords:
+                    one_agent_cord.append(transform_points(agent_coord, world_from_agent) - centroid[:2])
+                coords_offset.append(np.array(one_agent_cord))
+            res['pred'] = np.array(coords_offset)
             res['conf'] = conf
         if return_results:
             return res
@@ -185,7 +197,9 @@ class LyftTrainerModule(pl.LightningModule, ABC):
         is_test = name == 'test'
         if self.global_step == 0:
             self.init_hparam_logs()
+        print(batch.keys())
         result = self(batch['image'], batch['target_positions'], batch.get('target_availabilities', None),
+                      world_from_agent=batch["world_from_agent"], centroid=batch["centroid"],
                       return_results=True, attack=not (is_val or is_test), return_trajectory=is_test)
         # if not is_test:
         for item, value in result.items():
