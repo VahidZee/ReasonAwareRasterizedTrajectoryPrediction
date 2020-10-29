@@ -35,21 +35,21 @@ class Resnet(RasterModel):
                 old_weight[:, :min(self.in_channels, old_weight.shape[1]), :, :].data
             if old_bias is not None:
                 self.model.conv1.bias.data = old_bias.data
-            if self.model.fc.out_features != self.out_dim:
-                if self.add_fc is None:
-                    fc = torch.nn.Linear(self.model.fc.in_features, self.out_dim, bias=self.model.fc.bias is not None)
-                else:
-                    sizes, last_size, layers = self.add_fc if isinstance(self.add_fc, list) else [
-                        self.add_fc], self.model.fc.in_features, []
-                    act = getattr(torch.nn, self.add_fc_act)(
-                        *act_args_list, **act_args_dict) if self.add_fc_act else None
-                    dropout = torch.nn.Dropout(self.add_fc_dropout, inplace=True) if self.add_fc_dropout else None
-                    for s in sizes:
-                        s = int(s * last_size) if isinstance(s, float) else s
-                        if dropout is not None: layers.append(dropout)
-                        layers.append(torch.nn.Linear(last_size, s, bias=self.model.fc.bias is not None))
-                        if act is not None: layers.append(act)
-                        last_size = s
-                    layers.append(torch.nn.Linear(last_size, self.out_dim, bias=self.model.fc.bias is not None))
-                    fc = torch.nn.Sequential(*layers)
-                self.model.fc = fc
+        if self.model.fc.out_features != self.out_dim:
+            if self.add_fc is None:
+                fc = torch.nn.Linear(self.model.fc.in_features, self.out_dim, bias=self.model.fc.bias is not None)
+            else:
+                sizes, last_size, layers = self.add_fc if isinstance(self.add_fc, list) else [
+                    self.add_fc], self.model.fc.in_features, []
+                act = getattr(torch.nn, self.add_fc_act)(
+                    *act_args_list, **act_args_dict) if self.add_fc_act else None
+                dropout = torch.nn.Dropout(self.add_fc_dropout, inplace=True) if self.add_fc_dropout else None
+                for s in sizes:
+                    s = int(s * last_size) if isinstance(s, float) else s
+                    if dropout is not None: layers.append(dropout)
+                    layers.append(torch.nn.Linear(last_size, s, bias=self.model.fc.bias is not None))
+                    if act is not None: layers.append(act)
+                    last_size = s
+                layers.append(torch.nn.Linear(last_size, self.out_dim, bias=self.model.fc.bias is not None))
+                fc = torch.nn.Sequential(*layers)
+            self.model.fc = fc

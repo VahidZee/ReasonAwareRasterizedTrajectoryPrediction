@@ -4,7 +4,7 @@ format_version: 4
 ###################
 ## Model options
 model_params:
-  history_num_frames: 10
+  history_num_frames: 0
   history_step_size: 1
   history_delta_time: 0.1
 
@@ -27,7 +27,7 @@ raster_params:
   ego_center:
     - 0.25
     - 0.5
-  map_type: "py_semantic"
+  map_type: "semantic_debug"
 
   # the keys are relative to the dataset environment variable
   satellite_map_key: "aerial_map/aerial_map.png"
