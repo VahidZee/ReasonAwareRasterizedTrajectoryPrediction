@@ -1,8 +1,7 @@
-from abc import ABC
 import torch
 
 
-class RasterModel(torch.nn.Module, ABC):
+class RasterModel(torch.nn.Module):
     def __init__(self, config: dict, modes: int = 1):
         super().__init__()
         self.modes = modes
@@ -20,10 +19,14 @@ class RasterModel(torch.nn.Module, ABC):
 
     def forward(self, x):
         res = self._forward(x)
-        bs = x.shape[0]
+        if type(x) is list:
+            bs = x[0].shape[0]
+        else:
+            bs = x.shape[0]
         if self.modes != 1:
             pred, conf = torch.split(res, self.num_preds, dim=1)
             pred = pred.view(bs, self.modes, self.future_len, 2)
             conf = torch.softmax(conf, dim=1)
             return pred, conf
         return res.view(bs, 1, self.future_len, 2), res.new_ones((bs, 1))
+

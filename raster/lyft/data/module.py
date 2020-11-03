@@ -6,15 +6,44 @@ from pytorch_lightning import LightningDataModule
 import pandas as pd
 import numpy as np
 
-from l5kit.rasterization import build_rasterizer
 from l5kit.data import LocalDataManager, ChunkedDataset
-from l5kit.dataset import AgentDataset
 import functools
+
+from deepsvg.config import _Config
+import torch.nn as nn
+from .data import build_rasterizer, AgentDataset
+import argparse
+import importlib
+from l5kit.configs import load_config_data
+from .data import AgentDataset
+
+from deepsvg.utils import Stats, TrainVars, Timer
+import torch
+from deepsvg import utils
+from datetime import datetime
+from tensorboardX import SummaryWriter
+from deepsvg.utils.stats import SmoothedValue
+import os
+
+from torch.utils.data.dataloader import default_collate
+from collections import defaultdict
+
+import pandas as pd
 
 DEFAULT_BATCH_SIZE = 32
 DEFAULT_CACHE_SIZE = int(1e9)
 DEFAULT_NUM_WORKERS = 4
 
+def my_collate(batch):
+    "Puts each data field into a tensor with outer dimension batch size"
+    # print(batch)
+    # batch = filter(lambda x:x is not None, batch)
+    batch = list(filter(None, batch))
+    # print(batch)
+    if len(batch) > 0:
+        return default_collate(batch)
+    else:
+        return
 
 class IndexedDataset(Dataset):
 
@@ -34,6 +63,7 @@ class LyftDataModule(LightningDataModule):
             self,
             data_root: str,
             config: dict,
+            model_config,
             # train
             train_split: str = None,
             train_batch_size: str = None,
@@ -62,6 +92,7 @@ class LyftDataModule(LightningDataModule):
         super().__init__()
         self.data_root = data_root
         self.config = config
+        self.model_config = model_config
         print('initializing up data module\n\t*root:', data_root, '\t*cache:', cache_size, '\t*raster-cache:',
               raster_cache_size)
 
@@ -121,7 +152,9 @@ class LyftDataModule(LightningDataModule):
         if stage == 'fit' or stage is None:
             train_zarr = ChunkedDataset(self.data_manager.require(self.train_split)).open(
                 cache_size_bytes=int(self.cache_size))
-            train_data = AgentDataset(self.config, train_zarr, self.rasterizer)
+            train_data = AgentDataset(data_cfg=self.config, zarr_dataset = train_zarr, rasterizer = self.rasterizer,
+                                      model_args=self.model_config.model_args, max_num_groups=self.model_config.max_num_groups,
+                                      max_seq_len=self.model_config.max_seq_len)
 
             if self.train_idxs is not None:
                 train_data = Subset(train_data, self.train_idxs)
@@ -133,7 +166,9 @@ class LyftDataModule(LightningDataModule):
                 self.train_data = train_data
                 val_zarr = ChunkedDataset(self.data_manager.require(self.val_split)).open(
                     cache_size_bytes=int(self.cache_size))
-                self.val_data = AgentDataset(self.config, val_zarr, self.rasterizer)
+                self.val_data = AgentDataset(data_cfg=self.config, zarr_dataset = val_zarr, rasterizer = self.rasterizer,
+                                             model_args=self.model_config.model_args, max_num_groups=self.model_config.max_num_groups,
+                                             max_seq_len=self.model_config.max_seq_len)
                 if self.val_idxs is not None:
                     self.val_data = Subset(self.val_data, self.val_idxs)
             if self.raster_cache_size:
@@ -143,9 +178,13 @@ class LyftDataModule(LightningDataModule):
             test_zarr = ChunkedDataset(self.data_manager.require(self.test_split)).open(
                 cache_size_bytes=int(self.cache_size))
             if self.test_mask is not None:
-                test_data = AgentDataset(self.config, test_zarr, self.rasterizer, agents_mask=self.test_mask)
+                test_data = AgentDataset(data_cfg=self.config, zarr_dataset = test_zarr, rasterizer = self.rasterizer,
+                                         model_args=self.model_config.model_args, max_num_groups=self.model_config.max_num_groups,
+                                         max_seq_len=self.model_config.max_seq_len,agents_mask=self.test_mask)
             else:
-                test_data = AgentDataset(self.config, test_zarr, self.rasterizer)
+                test_data = AgentDataset(data_cfg=self.config, zarr_dataset = test_zarr, rasterizer = self.rasterizer,
+                                         model_args=self.model_config.model_args, max_num_groups=self.model_config.max_num_groups,
+                                         max_seq_len=self.model_config.max_seq_len)
             if self.test_idxs is not None:
                 test_data = Subset(test_data, self.test_idxs)
             else:
@@ -160,13 +199,16 @@ class LyftDataModule(LightningDataModule):
             getattr(self, f'{name}_data'), batch_size=batch_size, num_workers=num_workers, shuffle=shuffle)
 
     def train_dataloader(self, batch_size=None, num_workers=None, shuffle=None):
-        return self._get_dataloader('train', batch_size=batch_size, num_workers=num_workers, shuffle=shuffle)
+        return DataLoader(self.train_data, batch_size=self.model_config.train_batch_size, shuffle=True,
+                          num_workers=self.model_config.loader_num_workers,collate_fn=my_collate)
 
     def val_dataloader(self, batch_size=None, num_workers=None, shuffle=None):
-        return self._get_dataloader('val', batch_size=batch_size, num_workers=num_workers, shuffle=shuffle)
+        return DataLoader(self.val_data, batch_size=self.model_config.val_batch_size, shuffle=True,
+                          num_workers=self.model_config.loader_num_workers,collate_fn=my_collate)
 
     def test_dataloader(self, batch_size=None, num_workers=None, shuffle=False):
-        return self._get_dataloader('test', batch_size=batch_size, num_workers=num_workers, shuffle=shuffle)
+        return DataLoader(self.test_data, batch_size=self.model_config.val_batch_size, shuffle=False,
+                          num_workers=self.model_config.loader_num_workers,collate_fn=my_collate)
 
     @staticmethod
     def add_model_specific_args(parent_parser):

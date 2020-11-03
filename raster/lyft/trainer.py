@@ -20,11 +20,14 @@ from l5kit.geometry import transform_points
 import numpy as np
 import argparse
 
+from ..models.model_trajectory import ModelTrajectory
+
 
 class LyftTrainerModule(pl.LightningModule, ABC):
     def __init__(
             self,
             config: dict,
+            model_config,
             model: str = 'Resnet',
             model_dict: dict = None,
             modes: int = 1,
@@ -54,8 +57,9 @@ class LyftTrainerModule(pl.LightningModule, ABC):
         self.save_hyperparameters()
         print(self.hparams)
         # initializing model
-        self.model = getattr(models, self.hparams.model)(config=self.hparams.config, modes=self.hparams.modes,
-                                                         **(self.hparams.model_dict or dict()))
+        # self.model = getattr(models, self.hparams.model)(config=self.hparams.config, modes=self.hparams.modes,
+        #                                                  **(self.hparams.model_dict or dict()))
+        self.model = ModelTrajectory(model_cfg=self.hparams.model_config, data_config= self.hparams.config, modes=self.hparams.modes)
         # saliency
         self.saliency = SaliencySupervision(
             self.hparams.config, self.hparams.saliency_intrest, **(self.hparams.saliency_dict or dict())
@@ -139,8 +143,11 @@ class LyftTrainerModule(pl.LightningModule, ABC):
                 inputs = adv_inputs
             res['adv/init_loss'] = init_loss
             res['adv/final_loss'] = final_loss
-        inputs.requires_grad = bool(self.hparams.saliency_factor) or self.track_grad
-        pred, conf = self.model(inputs)
+        ##added
+        model_args = [inputs[arg]for arg in self.hparams.model_config.model_args]
+        entery = [*model_args, {}, True]
+        # inputs.requires_grad = bool(self.hparams.saliency_factor) or self.track_grad
+        pred, conf = self.model(entery)
         nll = neg_multi_log_likelihood(targets, pred, conf, target_availabilities)
         if (self.hparams.saliency_factor or self.track_grad) and grad_enabled:
             grads = torch.autograd.grad(

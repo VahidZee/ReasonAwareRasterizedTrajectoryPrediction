@@ -6,10 +6,12 @@ from pathlib import Path
 import argparse
 import torch
 from raster.utils import boolify
+import importlib
 
 parser = argparse.ArgumentParser(description='Manage running job')
 parser.add_argument('--seed', type=int, default=313, help='random seed to use')
 parser.add_argument('--config', type=str, required=True, help='config yaml path')
+parser.add_argument("--config-model", type=str, required=True)
 parser.add_argument('--log-lr', type=boolify, default=True, help='learning rate log interval')
 parser.add_argument('--log-gpu-stats', type=boolify, default=False, help='whether to monitor gpu stats')
 parser.add_argument('--log-root', type=str, default='./lightning_logs', help='experiments logs root')
@@ -36,8 +38,11 @@ if __name__ == '__main__':
     checkpoint = pl.callbacks.ModelCheckpoint(monitor='loss/val', save_last=True, verbose=True, mode='min')
     trainer = pl.Trainer.from_argparse_args(args, checkpoint_callback=checkpoint, callbacks=callbacks, logger=logger)
     config = load_config_data(args.config)
+    model_config = importlib.import_module(args.config_model).Config()
+    model_name, experiment_name = args.config_model.split(".")[-2:]
     args_dict = vars(args)
     args_dict['config'] = config
+    args_dict['model_config'] = model_config
     training_procedure = LyftTrainerModule(**args_dict)
     if args.transfer is not None:
         training_procedure.load_state_dict(torch.load(args.transfer)['state_dict'])
