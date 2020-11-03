@@ -27,7 +27,7 @@ import os
 
 from torch.utils.data.dataloader import default_collate
 from collections import defaultdict
-
+import nonechucks as nc
 import pandas as pd
 
 DEFAULT_BATCH_SIZE = 32
@@ -200,15 +200,15 @@ class LyftDataModule(LightningDataModule):
 
     def train_dataloader(self, batch_size=None, num_workers=None, shuffle=None):
         return DataLoader(self.train_data, batch_size=self.model_config.train_batch_size, shuffle=True,
-                          num_workers=self.model_config.loader_num_workers,collate_fn=my_collate)
+                          num_workers=self.model_config.loader_num_workers)
 
     def val_dataloader(self, batch_size=None, num_workers=None, shuffle=None):
         return DataLoader(self.val_data, batch_size=self.model_config.val_batch_size, shuffle=True,
-                          num_workers=self.model_config.loader_num_workers,collate_fn=my_collate)
+                          num_workers=self.model_config.loader_num_workers)
 
     def test_dataloader(self, batch_size=None, num_workers=None, shuffle=False):
         return DataLoader(self.test_data, batch_size=self.model_config.val_batch_size, shuffle=False,
-                          num_workers=self.model_config.loader_num_workers,collate_fn=my_collate)
+                          num_workers=self.model_config.loader_num_workers)
 
     @staticmethod
     def add_model_specific_args(parent_parser):

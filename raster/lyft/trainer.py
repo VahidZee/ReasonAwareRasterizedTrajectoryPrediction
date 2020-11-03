@@ -197,7 +197,21 @@ class LyftTrainerModule(pl.LightningModule, ABC):
             return res
         return res['loss']
 
+    def on_train_batch_start(self, batch, batch_idx: int, dataloader_idx: int):
+        print(batch['valid'])
+        batch['image']['commands'] = batch['image']['commands'][batch['valid']]
+        if len(batch['image']['commands']) == 0:
+            return -1
+        batch['image']['args'] = batch['image']['args'][batch['valid']]
+        batch['target_positions'] = batch['target_positions'][batch['valid']]
+        batch['target_availabilities'] = batch['target_availabilities'][batch['valid']]
+        batch['world_from_agent'] = batch['world_from_agent'][batch['valid']]
+        batch['centroid'] = batch['centroid'][batch['valid']]
+        batch['valid'] = batch['valid'][batch['valid']]
+        return
+
     def step(self, batch, batch_idx, optimizer_idx=None, name='train'):
+        print(batch['valid'])
         is_val = name == 'val'
         is_test = name == 'test'
         if self.global_step == 0:

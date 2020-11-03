@@ -169,19 +169,19 @@ class AgentDataset(torch.utils.data.Dataset):
             # svg = apply_colors(tens, item['path_type'])
             del item['path']
             del item['path_type']
-            item['image'] = self.get_data(idx,tens, None, model_args=model_args, label=None)
-            if item['image'] is None:
-                return
+            item['image'],item['valid'] = self.get_data(idx,tens, None, model_args=model_args, label=None)
         return item
 
     def get_data(self, idx, t_sep, fillings, model_args=None, label=None):
         res = {}
+        valid = True
         # max_len_commands = 0
         # len_path = len(t_sep)
         if model_args is None:
             model_args = self.model_args
         if len(t_sep) > self.MAX_NUM_GROUPS:
-            return None
+            t_sep = t_sep[0:self.MAX_NUM_GROUPS]
+            valid = False
         pad_len = max(self.MAX_NUM_GROUPS - len(t_sep), 0)
 
         t_sep.extend([torch.empty(0, 14)] * pad_len)
@@ -191,8 +191,10 @@ class AgentDataset(torch.utils.data.Dataset):
         t_normal = []
         for t in t_sep:
             s = SVGTensor.from_data(t, PAD_VAL=self.PAD_VAL)
+            # print(s.commands.shape)
             if len(s.commands) > self.MAX_SEQ_LEN:
-                return None
+                s.commands = s.commands[0:self.MAX_SEQ_LEN]
+                valid = False
             t_normal.append(s.add_eos().add_sos().pad(
                 seq_len=self.MAX_SEQ_LEN + 2))
         # line = {"idx" : idx, "len_path" : len_path, "max_len_commands" : max_len_commands}
@@ -226,5 +228,5 @@ class AgentDataset(torch.utils.data.Dataset):
 
         if "label" in model_args:
             res["label"] = label
-        return res
+        return res,valid
 
