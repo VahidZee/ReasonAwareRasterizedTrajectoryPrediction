@@ -11,6 +11,7 @@ from .utils import (_get_padding_mask, _get_key_padding_mask, _get_group_mask, _
 
 from torch.nn.utils.rnn import pad_packed_sequence, pack_padded_sequence
 from scipy.optimize import linear_sum_assignment
+from torch.nn import init
 
 
 class SVGEmbedding(nn.Module):
@@ -29,9 +30,9 @@ class SVGEmbedding(nn.Module):
         if use_group:
             if group_len is None:
                 group_len = cfg.max_num_groups
-            self.group_embed = nn.Embedding(group_len+2, cfg.d_model)
+            self.group_embed = nn.Embedding(group_len + 2, cfg.d_model)
 
-        self.pos_encoding = PositionalEncodingLUT(cfg.d_model, max_len=seq_len+2)
+        self.pos_encoding = PositionalEncodingLUT(cfg.d_model, max_len=seq_len + 2)
 
         self._init_embeddings()
 
@@ -95,47 +96,60 @@ class Encoder(nn.Module):
 
         self.cfg = cfg
         self.history_residual = ResNet(40)
+        self.history_block = nn.Linear(40, 256)
+
         seq_len = cfg.max_seq_len if cfg.encode_stages == 2 else cfg.max_total_len
-        print("cfg.encode_stages",cfg.encode_stages)
         self.use_group = cfg.encode_stages == 1
         self.embedding = SVGEmbedding(cfg, seq_len, use_group=self.use_group)
-        print("cfg.label_condition",cfg.label_condition)
         if cfg.label_condition:
             self.label_embedding = LabelEmbedding(cfg)
         dim_label = cfg.dim_label if cfg.label_condition else None
-        print("cfg.model_type",cfg.model_type)
         if cfg.model_type == "transformer":
-            encoder_layer = TransformerEncoderLayerImproved(cfg.d_model, cfg.n_heads, cfg.dim_feedforward, cfg.dropout, d_global2=dim_label)
+            encoder_layer = TransformerEncoderLayerImproved(cfg.d_model, cfg.n_heads, cfg.dim_feedforward, cfg.dropout,
+                                                            d_global2=dim_label)
             encoder_norm = LayerNorm(cfg.d_model)
             self.encoder = TransformerEncoder(encoder_layer, cfg.n_layers, encoder_norm)
         else:  # "lstm"
             self.encoder = nn.LSTM(cfg.d_model, cfg.d_model // 2, dropout=cfg.dropout, bidirectional=True)
-        print("cfg.encode_stages",cfg.encode_stages)
         if cfg.encode_stages == 2:
             if not cfg.self_match:
-                self.hierarchical_PE = PositionalEncodingLUT(cfg.d_model, max_len=cfg.max_num_groups)
+                # print("loooooook",cfg.max_num_groups)
+                self.hierarchical_PE = PositionalEncodingLUT(cfg.d_model, max_len=501)
 
-            hierarchical_encoder_layer = TransformerEncoderLayerImproved(cfg.d_model, cfg.n_heads, cfg.dim_feedforward, cfg.dropout, d_global2=dim_label)
+            hierarchical_encoder_layer = TransformerEncoderLayerImproved(cfg.d_model, cfg.n_heads, cfg.dim_feedforward,
+                                                                         cfg.dropout, d_global2=dim_label)
             hierarchical_encoder_norm = LayerNorm(cfg.d_model)
-            self.hierarchical_encoder = TransformerEncoder(hierarchical_encoder_layer, cfg.n_layers, hierarchical_encoder_norm)
+            # print("1111111", hierarchical_encoder_layer, cfg.n_layers, hierarchical_encoder_norm)
+            self.hierarchical_encoder = TransformerEncoder(hierarchical_encoder_layer, cfg.n_layers,
+                                                           hierarchical_encoder_norm)
 
-    def forward(self, commands, args,history, label=None):
+    def forward(self, commands, args, history, label=None):
         S, G, N = commands.shape
-        l = self.label_embedding(label).unsqueeze(0).unsqueeze(0).repeat(1, commands.size(1), 1, 1) if self.cfg.label_condition else None
+        print("commands", commands.shape, "args", args.shape, "history", history.shape)
+        l = self.label_embedding(label).unsqueeze(0).unsqueeze(0).repeat(1, commands.size(1), 1,
+                                                                         1) if self.cfg.label_condition else None
 
         if self.cfg.encode_stages == 2:
-            visibility_mask, key_visibility_mask = _get_visibility_mask(commands, seq_dim=0), _get_key_visibility_mask(commands, seq_dim=0)
-
+            visibility_mask, key_visibility_mask = _get_visibility_mask(commands, seq_dim=0,
+                                                                        modified=True), _get_key_visibility_mask(
+                commands, seq_dim=0, modified=True)
+            print(visibility_mask.shape, key_visibility_mask.shape)
         commands, args, l = _pack_group_batch(commands, args, l)
-        padding_mask, key_padding_mask = _get_padding_mask(commands, seq_dim=0), _get_key_padding_mask(commands, seq_dim=0)
+        print("packiing", "commands", commands.shape, "args", args.shape)
+        padding_mask, key_padding_mask = _get_padding_mask(commands, seq_dim=0), _get_key_padding_mask(commands,
+                                                                                                       seq_dim=0)
+        print(padding_mask.shape, key_padding_mask.shape)
+        print("self.use_group", self.use_group)
         group_mask = _get_group_mask(commands, seq_dim=0) if self.use_group else None
 
         src = self.embedding(commands, args, group_mask)
+        print("src after embeding", src.shape)
 
         if self.cfg.model_type == "transformer":
             memory = self.encoder(src, mask=None, src_key_padding_mask=key_padding_mask, memory2=l)
-
+            print("memory", memory.shape)
             z = (memory * padding_mask).sum(dim=0, keepdim=True) / padding_mask.sum(dim=0, keepdim=True)
+            print("z", z.shape)
         else:  # "lstm"
             hidden_cell = (src.new_zeros(2, N, self.cfg.d_model // 2),
                            src.new_zeros(2, N, self.cfg.d_model // 2))
@@ -147,18 +161,26 @@ class Encoder(nn.Module):
             memory, _ = pad_packed_sequence(packed_output)
             idx = (sequence_lengths - 1).long().view(1, -1, 1).repeat(1, 1, self.cfg.d_model)
             z = memory.gather(dim=0, index=idx)
+        h = self.history_block(self.history_residual(torch.flatten(history, start_dim=1))).unsqueeze(0).unsqueeze(0)
+        print(h.shape)
         z = _unpack_group_batch(N, z)
+        print("z after unpacking", z.shape)
+        z = torch.cat((z, h), dim=1)
+        print("z after cating", z.shape)
 
         if self.cfg.encode_stages == 2:
             src = z.transpose(0, 1)
+            print("src", src.shape)
             src = _pack_group_batch(src)
+            print("src", src.shape)
             l = self.label_embedding(label).unsqueeze(0) if self.cfg.label_condition else None
-
+            print("self.cfg.self_match", self.cfg.self_match)
             if not self.cfg.self_match:
                 src = self.hierarchical_PE(src)
-
             memory = self.hierarchical_encoder(src, mask=None, src_key_padding_mask=key_visibility_mask, memory2=l)
+            print("memory", memory.shape)
             z = (memory * visibility_mask).sum(dim=0, keepdim=True) / visibility_mask.sum(dim=0, keepdim=True)
+            print("z", z.shape)
             z = _unpack_group_batch(N, z)
 
         return z
@@ -191,7 +213,7 @@ class Bottleneck(nn.Module):
     def __init__(self, cfg: _DefaultConfig):
         super(Bottleneck, self).__init__()
 
-        self.bottleneck = nn.Linear(cfg.d_model, cfg.dim_z)
+        self.bottleneck = nn.Linear(cfg.d_model , cfg.dim_z)
 
     def forward(self, z):
         return self.bottleneck(z)
@@ -210,22 +232,27 @@ class Decoder(nn.Module):
         if cfg.decode_stages == 2:
             self.hierarchical_embedding = ConstEmbedding(cfg, cfg.num_groups_proposal)
 
-            hierarchical_decoder_layer = TransformerDecoderLayerGlobalImproved(cfg.d_model, cfg.dim_z, cfg.n_heads, cfg.dim_feedforward, cfg.dropout, d_global2=dim_label)
+            hierarchical_decoder_layer = TransformerDecoderLayerGlobalImproved(cfg.d_model, cfg.dim_z, cfg.n_heads,
+                                                                               cfg.dim_feedforward, cfg.dropout,
+                                                                               d_global2=dim_label)
             hierarchical_decoder_norm = LayerNorm(cfg.d_model)
-            self.hierarchical_decoder = TransformerDecoder(hierarchical_decoder_layer, cfg.n_layers_decode, hierarchical_decoder_norm)
+            self.hierarchical_decoder = TransformerDecoder(hierarchical_decoder_layer, cfg.n_layers_decode,
+                                                           hierarchical_decoder_norm)
             self.hierarchical_fcn = HierarchFCN(cfg.d_model, cfg.dim_z)
 
         if cfg.pred_mode == "autoregressive":
-            self.embedding = SVGEmbedding(cfg, cfg.max_total_len, rel_args=cfg.rel_targets, use_group=True, group_len=cfg.max_total_len)
+            self.embedding = SVGEmbedding(cfg, cfg.max_total_len, rel_args=cfg.rel_targets, use_group=True,
+                                          group_len=cfg.max_total_len)
 
-            square_subsequent_mask = _generate_square_subsequent_mask(self.cfg.max_total_len+1)
+            square_subsequent_mask = _generate_square_subsequent_mask(self.cfg.max_total_len + 1)
             self.register_buffer("square_subsequent_mask", square_subsequent_mask)
         else:  # "one_shot"
-            seq_len = cfg.max_seq_len+1 if cfg.decode_stages == 2 else cfg.max_total_len+1
+            seq_len = cfg.max_seq_len + 1 if cfg.decode_stages == 2 else cfg.max_total_len + 1
             self.embedding = ConstEmbedding(cfg, seq_len)
 
         if cfg.model_type == "transformer":
-            decoder_layer = TransformerDecoderLayerGlobalImproved(cfg.d_model, cfg.dim_z, cfg.n_heads, cfg.dim_feedforward, cfg.dropout, d_global2=dim_label)
+            decoder_layer = TransformerDecoderLayerGlobalImproved(cfg.d_model, cfg.dim_z, cfg.n_heads,
+                                                                  cfg.dim_feedforward, cfg.dropout, d_global2=dim_label)
             decoder_norm = LayerNorm(cfg.d_model)
             self.decoder = TransformerDecoder(decoder_layer, cfg.n_layers_decode, decoder_norm)
         else:  # "lstm"
@@ -269,7 +296,8 @@ class Decoder(nn.Module):
 
             if self.cfg.model_type == "transformer":
                 key_padding_mask = _get_key_padding_mask(commands, seq_dim=0)
-                out = self.decoder(src, z, tgt_mask=self.square_subsequent_mask[:S, :S], tgt_key_padding_mask=key_padding_mask, memory2=l)
+                out = self.decoder(src, z, tgt_mask=self.square_subsequent_mask[:S, :S],
+                                   tgt_key_padding_mask=key_padding_mask, memory2=l)
             else:  # "lstm"
                 hidden_cell = self._get_initial_state(z)  # TODO: reinject intermediate state
                 out, _ = self.decoder(src, hidden_cell)
@@ -295,10 +323,8 @@ class SVGTransformer(nn.Module):
         if self.cfg.encode_stages > 0:
 
             self.encoder = Encoder(cfg)
-            print("cfg.use_resnet",cfg.use_resnet)
             if cfg.use_resnet:
                 self.resnet = ResNet(cfg.d_model)
-            print("cfg.use_vae",cfg.use_vae)
             if cfg.use_vae:
                 self.vae = VAE(cfg)
             else:
@@ -307,6 +333,13 @@ class SVGTransformer(nn.Module):
         self.decoder = Decoder(cfg)
 
         self.register_buffer("cmd_args_mask", SVGTensor.CMD_ARGS_MASK)
+        self.history_mlp = torch.nn.Sequential(torch.nn.Linear(40, 128),
+                                               torch.nn.ReLU(),
+                                               torch.nn.Linear(128, 96),
+                                               torch.nn.ReLU(),
+                                               torch.nn.Linear(96, 64), )
+        for i in range(0, len(self.history_mlp), 2):
+            nn.init.kaiming_normal_(self.history_mlp[i].weight, mode="fan_in")
 
     def perfect_matching(self, command_logits, args_logits, hierarch_logits, tgt_commands, tgt_args):
         with torch.no_grad():
@@ -315,19 +348,33 @@ class SVGTransformer(nn.Module):
             padding_mask = _get_padding_mask(tgt_commands, seq_dim=-1, extended=True) * visibility_mask.unsqueeze(-1)
 
             # Unsqueeze
-            tgt_commands, tgt_args, tgt_hierarch = tgt_commands.unsqueeze(2), tgt_args.unsqueeze(2), visibility_mask.unsqueeze(2)
-            command_logits, args_logits, hierarch_logits = command_logits.unsqueeze(1), args_logits.unsqueeze(1), hierarch_logits.unsqueeze(1).squeeze(-2)
+            tgt_commands, tgt_args, tgt_hierarch = tgt_commands.unsqueeze(2), tgt_args.unsqueeze(
+                2), visibility_mask.unsqueeze(2)
+            command_logits, args_logits, hierarch_logits = command_logits.unsqueeze(1), args_logits.unsqueeze(
+                1), hierarch_logits.unsqueeze(1).squeeze(-2)
 
             # Loss
-            tgt_hierarch, hierarch_logits = tgt_hierarch.repeat(1, 1, self.cfg.num_groups_proposal), hierarch_logits.repeat(1, G, 1, 1)
-            tgt_commands, command_logits = tgt_commands.repeat(1, 1, self.cfg.num_groups_proposal, 1), command_logits.repeat(1, G, 1, 1, 1)
-            tgt_args, args_logits = tgt_args.repeat(1, 1, self.cfg.num_groups_proposal, 1, 1), args_logits.repeat(1, G, 1, 1, 1, 1)
+            tgt_hierarch, hierarch_logits = tgt_hierarch.repeat(1, 1,
+                                                                self.cfg.num_groups_proposal), hierarch_logits.repeat(1,
+                                                                                                                      G,
+                                                                                                                      1,
+                                                                                                                      1)
+            tgt_commands, command_logits = tgt_commands.repeat(1, 1, self.cfg.num_groups_proposal,
+                                                               1), command_logits.repeat(1, G, 1, 1, 1)
+            tgt_args, args_logits = tgt_args.repeat(1, 1, self.cfg.num_groups_proposal, 1, 1), args_logits.repeat(1, G,
+                                                                                                                  1, 1,
+                                                                                                                  1, 1)
 
-            padding_mask, mask = padding_mask.unsqueeze(2).repeat(1, 1, self.cfg.num_groups_proposal, 1), self.cmd_args_mask[tgt_commands.long()]
+            padding_mask, mask = padding_mask.unsqueeze(2).repeat(1, 1, self.cfg.num_groups_proposal, 1), \
+                                 self.cmd_args_mask[tgt_commands.long()]
 
-            loss_args = F.cross_entropy(args_logits.reshape(-1, self.args_dim), tgt_args.reshape(-1).long() + 1, reduction="none").reshape(N, G, self.cfg.num_groups_proposal, S, n_args)    # shift due to -1 PAD_VAL
-            loss_cmd = F.cross_entropy(command_logits.reshape(-1, self.cfg.n_commands), tgt_commands.reshape(-1).long(), reduction="none").reshape(N, G, self.cfg.num_groups_proposal, S)
-            loss_hierarch = F.cross_entropy(hierarch_logits.reshape(-1, 2), tgt_hierarch.reshape(-1).long(), reduction="none").reshape(N, G, self.cfg.num_groups_proposal)
+            loss_args = F.cross_entropy(args_logits.reshape(-1, self.args_dim), tgt_args.reshape(-1).long() + 1,
+                                        reduction="none").reshape(N, G, self.cfg.num_groups_proposal, S,
+                                                                  n_args)  # shift due to -1 PAD_VAL
+            loss_cmd = F.cross_entropy(command_logits.reshape(-1, self.cfg.n_commands), tgt_commands.reshape(-1).long(),
+                                       reduction="none").reshape(N, G, self.cfg.num_groups_proposal, S)
+            loss_hierarch = F.cross_entropy(hierarch_logits.reshape(-1, 2), tgt_hierarch.reshape(-1).long(),
+                                            reduction="none").reshape(N, G, self.cfg.num_groups_proposal)
 
             loss_args = (loss_args * mask).sum(dim=[-1, -2]) / mask.sum(dim=[-1, -2])
             loss_cmd = (loss_cmd * padding_mask).sum(dim=-1) / padding_mask.sum(dim=-1)
@@ -349,17 +396,19 @@ class SVGTransformer(nn.Module):
 
         return assignment.unsqueeze(-1).unsqueeze(-1)
 
-    def forward(self, commands_enc, args_enc, commands_dec, args_dec,history, label=None,
+    def forward(self, commands_enc, args_enc, commands_dec, args_dec, history, label=None,
                 z=None, hierarch_logits=None,
                 return_tgt=True, params=None, encode_mode=False, return_hierarch=False):
         commands_enc, args_enc = _make_seq_first(commands_enc, args_enc)  # Possibly None, None
         commands_dec_, args_dec_ = _make_seq_first(commands_dec, args_dec)
+        h2 = history.permute(1, 0, 2).unsqueeze(dim=1)
 
         if z is None:
-            z = self.encoder(commands_enc, args_enc,history, label)
+            z = self.encoder(commands_enc, args_enc, history, label).squeeze(0).squeeze(0)
 
             if self.cfg.use_resnet:
                 z = self.resnet(z)
+            # h = self.history_mlp(torch.flatten(history, start_dim=1))
 
             if self.cfg.use_vae:
                 z, mu, logsigma = self.vae(z)
@@ -385,7 +434,8 @@ class SVGTransformer(nn.Module):
             assert self.cfg.decode_stages == 2  # Self-matching expects two-stage decoder
             command_logits, args_logits, hierarch_logits = out_logits
 
-            assignment = self.perfect_matching(command_logits, args_logits, hierarch_logits, commands_dec[..., 1:], args_dec[..., 1:, :])
+            assignment = self.perfect_matching(command_logits, args_logits, hierarch_logits, commands_dec[..., 1:],
+                                               args_dec[..., 1:, :])
 
             command_logits = torch.gather(command_logits, dim=1, index=assignment.expand_as(command_logits))
             args_logits = torch.gather(args_logits, dim=1, index=assignment.unsqueeze(-1).expand_as(args_logits))
@@ -415,25 +465,31 @@ class SVGTransformer(nn.Module):
                       z=None, hierarch_logits=None,
                       concat_groups=True, temperature=0.0001):
         if self.cfg.pred_mode == "one_shot":
-            res = self.forward(commands_enc, args_enc, commands_dec, args_dec, label=label, z=z, hierarch_logits=hierarch_logits, return_tgt=False)
+            res = self.forward(commands_enc, args_enc, commands_dec, args_dec, label=label, z=z,
+                               hierarch_logits=hierarch_logits, return_tgt=False)
             commands_y, args_y = _sample_categorical(temperature, res["command_logits"], res["args_logits"])
             args_y -= 1  # shift due to -1 PAD_VAL
-            visibility_y = _threshold_sample(res["visibility_logits"], threshold=0.7).bool().squeeze(-1) if self.cfg.decode_stages == 2 else None
+            visibility_y = _threshold_sample(res["visibility_logits"], threshold=0.7).bool().squeeze(
+                -1) if self.cfg.decode_stages == 2 else None
             commands_y, args_y = self._make_valid(commands_y, args_y, visibility_y)
         else:
             if z is None:
                 z = self.forward(commands_enc, args_enc, None, None, label=label, encode_mode=True)
 
             PAD_VAL = -1
-            commands_y, args_y = z.new_zeros(1, 1, 1).fill_(SVGTensor.COMMANDS_SIMPLIFIED.index("SOS")).long(), z.new_ones(1, 1, 1, self.cfg.n_args).fill_(PAD_VAL).long()
+            commands_y, args_y = z.new_zeros(1, 1, 1).fill_(
+                SVGTensor.COMMANDS_SIMPLIFIED.index("SOS")).long(), z.new_ones(1, 1, 1, self.cfg.n_args).fill_(
+                PAD_VAL).long()
 
             for i in range(self.cfg.max_total_len):
-                res = self.forward(None, None, commands_y, args_y, label=label, z=z, hierarch_logits=hierarch_logits, return_tgt=False)
+                res = self.forward(None, None, commands_y, args_y, label=label, z=z, hierarch_logits=hierarch_logits,
+                                   return_tgt=False)
                 commands_new_y, args_new_y = _sample_categorical(temperature, res["command_logits"], res["args_logits"])
                 args_new_y -= 1  # shift due to -1 PAD_VAL
                 _, args_new_y = self._make_valid(commands_new_y, args_new_y)
 
-                commands_y, args_y = torch.cat([commands_y, commands_new_y[..., -1:]], dim=-1), torch.cat([args_y, args_new_y[..., -1:, :]], dim=-2)
+                commands_y, args_y = torch.cat([commands_y, commands_new_y[..., -1:]], dim=-1), torch.cat(
+                    [args_y, args_new_y[..., -1:, :]], dim=-2)
 
             commands_y, args_y = commands_y[..., 1:], args_y[..., 1:, :]  # Discard SOS token
 
@@ -443,14 +499,16 @@ class SVGTransformer(nn.Module):
         if concat_groups:
             N = commands_y.size(0)
             padding_mask_y = _get_padding_mask(commands_y, seq_dim=-1).bool()
-            commands_y, args_y = commands_y[padding_mask_y].reshape(N, -1), args_y[padding_mask_y].reshape(N, -1, self.cfg.n_args)
+            commands_y, args_y = commands_y[padding_mask_y].reshape(N, -1), args_y[padding_mask_y].reshape(N, -1,
+                                                                                                           self.cfg.n_args)
 
         return commands_y, args_y
 
     def _make_valid(self, commands_y, args_y, visibility_y=None, PAD_VAL=-1):
         if visibility_y is not None:
             S = commands_y.size(-1)
-            commands_y[~visibility_y] = commands_y.new_tensor([SVGTensor.COMMANDS_SIMPLIFIED.index("m"), *[SVGTensor.COMMANDS_SIMPLIFIED.index("EOS")] * (S - 1)])
+            commands_y[~visibility_y] = commands_y.new_tensor(
+                [SVGTensor.COMMANDS_SIMPLIFIED.index("m"), *[SVGTensor.COMMANDS_SIMPLIFIED.index("EOS")] * (S - 1)])
             args_y[~visibility_y] = PAD_VAL
 
         mask = self.cmd_args_mask[commands_y.long()].bool()

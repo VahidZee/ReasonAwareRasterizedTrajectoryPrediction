@@ -155,6 +155,11 @@ class AgentDataset(torch.utils.data.Dataset):
         return svg.normalize()
 
     @staticmethod
+    def normalize_history(svg, normalize=True):
+        svg.canonicalize(normalize=normalize)
+        return svg.normalize()
+
+    @staticmethod
     def preprocess(svg, augment=True, numericalize=True, mean=False):
         if augment:
             svg = AgentDataset._augment(svg, mean=mean)
@@ -165,10 +170,15 @@ class AgentDataset(torch.utils.data.Dataset):
     def get(self, idx=0, model_args=None, random_aug=True, id=None, svg: SVG = None):
         item = self.data[idx]
         if self.svg and self.svg_cmds:
-            tens = self.simplify(SVG.from_tensor(item['path'])).split_paths().to_tensor(concat_groups=False)
-            # svg = apply_colors(tens, item['path_type'])
+            tens_scene = self.simplify(SVG.from_tensor(item['path'])).split_paths().to_tensor(concat_groups=False)
+            # tens_path = self.normalize_history(SVG.from_tensor(item['history_agent'])).split_paths().to_tensor(concat_groups=False)
+            tens_scene = apply_colors(tens_scene, item['path_type'])
+            # tens_path = apply_colors(tens_path, item['history_agent_type'])
+            tens = tens_scene
             del item['path']
             del item['path_type']
+            # del item['history_agent']
+            # del item['history_agent_type']
             item['image'],item['valid'] = self.get_data(idx,tens, None, model_args=model_args, label=None)
         return item
 
@@ -221,7 +231,7 @@ class AgentDataset(torch.utils.data.Dataset):
             if arg_ == "args_rel":
                 res[arg] = torch.stack([t.get_relative_args() for t in t_list])
             if arg_ == "args":
-                res[arg] = torch.stack([t.args() for t in t_list])
+                res[arg] = torch.stack([t.args()[0:self.MAX_SEQ_LEN+2] for t in t_list])
 
         if "filling" in model_args:
             res["filling"] = torch.stack([torch.tensor(t.filling) for t in t_sep]).unsqueeze(-1)

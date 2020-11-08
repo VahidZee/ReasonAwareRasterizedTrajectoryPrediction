@@ -17,6 +17,9 @@ def linear_path_to_tensor(path, pad=-1):
 
 def apply_colors(paths, colors, idxs: slice = COLOR_IDXS):
     colors = colors if colors is not None else [-1] * len(paths)
+    print(len(paths))
+    print(len(paths[0]))
+    print(len(paths[0][0]))
     for i in range(len(paths)):
         paths[i][:, idxs] = colors[i]
     return paths

@@ -157,7 +157,6 @@ class SVGTensor:
     def args(self, with_start_pos=False):
         if with_start_pos:
             return self.get_data(self.all_arg_keys)
-
         return self.get_data(self.arg_keys)
 
     def _get_real_commands_mask(self):

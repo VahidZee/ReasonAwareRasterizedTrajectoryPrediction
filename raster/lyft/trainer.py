@@ -20,8 +20,9 @@ from l5kit.geometry import transform_points
 import numpy as np
 import argparse
 
-from ..models.model_trajectory import ModelTrajectory
-
+from ..models.model_trajectory2 import ModelTrajectory
+from ..models.mlp_added_transformer import MLPTransformer
+from ..models.lstm_added_transformer import LSTMTransformer
 
 class LyftTrainerModule(pl.LightningModule, ABC):
     def __init__(
@@ -59,6 +60,7 @@ class LyftTrainerModule(pl.LightningModule, ABC):
         # initializing model
         # self.model = getattr(models, self.hparams.model)(config=self.hparams.config, modes=self.hparams.modes,
         #                                                  **(self.hparams.model_dict or dict()))
+        print("mode",self.hparams.modes)
         self.model = ModelTrajectory(model_cfg=self.hparams.model_config, data_config= self.hparams.config, modes=self.hparams.modes)
         # saliency
         self.saliency = SaliencySupervision(
@@ -145,7 +147,12 @@ class LyftTrainerModule(pl.LightningModule, ABC):
             res['adv/final_loss'] = final_loss
         ##added
         model_args = [inputs[arg]for arg in self.hparams.model_config.model_args]
-        entery = [*model_args, {}, True]
+        print(inputs.keys())
+        print(inputs['args'].shape,inputs['commands'].shape)
+        # print(model_args)
+        history  = torch.zeros(len(model_args[0]),20,2)
+        # entery = [[*model_args, {}, True],history]
+        entery = [*model_args,history,{},True]
         # inputs.requires_grad = bool(self.hparams.saliency_factor) or self.track_grad
         pred, conf = self.model(entery)
         nll = neg_multi_log_likelihood(targets, pred, conf, target_availabilities)
