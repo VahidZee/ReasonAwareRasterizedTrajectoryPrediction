@@ -3,7 +3,7 @@ import typing as th
 from l5kit.data.filter import filter_tl_faces_by_status, filter_agents_by_track_id, filter_agents_by_labels
 from l5kit.data.map_api import MapAPI
 from l5kit.data import get_frames_slice_from_scenes
-from l5kit.geometry import rotation33_as_yaw, transform_point, transform_points, yaw_as_rotation33
+from l5kit.geometry import rotation33_as_yaw, transform_point, transform_points, yaw_as_rotation33,world_to_image_pixels_matrix
 from l5kit.rasterization.semantic_rasterizer import elements_within_bounds, cv2_subpixel
 from l5kit.rasterization.box_rasterizer import get_ego_as_agent
 from typing import List, Optional
@@ -18,6 +18,18 @@ CV2_SHIFT = 8
 CV2_SHIFT_VALUE = 2 ** CV2_SHIFT
 AGENT_TYPE = 4
 EGO_TYPE = 5
+
+
+
+MAX_LANE_SIZE=200
+MAX_LANE_NUM=20
+def zero_point_extend(unsized_lane):
+    if len(unsized_lane)>MAX_LANE_SIZE:
+        valid_size=MAX_LANE_SIZE
+    else: valid_size=len(unsized_lane)
+    sized_lane=np.zeros((MAX_LANE_SIZE,2))
+    sized_lane[:valid_size]=unsized_lane[:valid_size]
+    return sized_lane,valid_size
 
 
 def normalize_line(line):
@@ -72,7 +84,7 @@ def check_if_target_is_in_this_lane(self,left_func,right_func,boundry,ego_transl
     return True
 
         
-def find_lanes_of_points(self,center_world,world_to_image_space, tl_faces,ego_translation,img,raster_radius,active_tl_ids,lanes_lines,
+def find_lanes_of_points(self,center_world,world_to_image_space, tl_faces,ego_translation,raster_radius,active_tl_ids,lanes_lines,
                         left_funcs,right_funcs,lane_indicies,ego_yaw,used_tail):
     selected_indicies=[]
     for i in range(len(lane_indicies)):
@@ -86,7 +98,7 @@ def find_lanes_of_points(self,center_world,world_to_image_space, tl_faces,ego_tr
 
             boundry=self.bounds_info["lanes"]["bounds"][idx]
 
-            if check_if_target_is_in_this_lane(left_func,right_func,boundry,ego_translation) :
+            if check_if_target_is_in_this_lane(self,left_func,right_func,boundry,ego_translation) :
 #                 self.check_if_target_is_alligned_with_lane(lane_coords["xyz_left"][:, :2],ego_translation,ego_yaw):
 
 #                     start=self.find_end_point_of_the_lane(lane_coords["xyz_left"][:, :2],ego_translation,ego_yaw)
@@ -108,7 +120,7 @@ def normalize_border(border,ego_translation,ego_yaw,world_to_image_space=None):
     return transform_points(border, world_to_image_space)
         
 
-def draw_recur_lanes(self,glob_id,lanes_lines,world_to_image_space,img,active_tl_ids,drwaed_lanes,
+def draw_recur_lanes(self,glob_id,lanes_lines,world_to_image_space,active_tl_ids,drwaed_lanes,
                      left_lanes,right_lanes,left_path=[],right_path=[],depth=0,):
 
     drwaed_lanes[str(glob_id)]=True
@@ -118,9 +130,9 @@ def draw_recur_lanes(self,glob_id,lanes_lines,world_to_image_space,img,active_tl
 
     if str(glob_id) not in self.normalized_left_borders:
         lane_coords = self.proto_API.get_lane_coords(glob_id)
-        self.normalized_left_borders[str(glob_id)]=self.normalize_border(lane_coords["xyz_left"][:, :2],
+        self.normalized_left_borders[str(glob_id)]=normalize_border(lane_coords["xyz_left"][:, :2],
                                                                          self.ego_translation,self.ego_yaw,world_to_image_space)
-        self.normalized_right_borders[str(glob_id)]=self.normalize_border(lane_coords["xyz_right"][:, :2],
+        self.normalized_right_borders[str(glob_id)]=normalize_border(lane_coords["xyz_right"][:, :2],
                                                                           self.ego_translation,self.ego_yaw,world_to_image_space)
 
     xy_left=self.normalized_left_borders[str(glob_id)]
@@ -137,15 +149,15 @@ def draw_recur_lanes(self,glob_id,lanes_lines,world_to_image_space,img,active_tl
     if depth<6: 
         for i in range(len(lane.lanes_ahead)):
             added=True
-            draw_recur_lanes(lane.lanes_ahead[i].id,lanes_lines,world_to_image_space,img,active_tl_ids,drwaed_lanes,
+            draw_recur_lanes(self,lane.lanes_ahead[i].id,lanes_lines,world_to_image_space,active_tl_ids,drwaed_lanes,
                                   left_lanes,right_lanes,tmp_left_path,tmp_right_path,depth=depth+1)
 
     if depth<=0:
         if lane.adjacent_lane_change_right.id!=b"" :
-            draw_recur_lanes(lane.adjacent_lane_change_right.id,lanes_lines,world_to_image_space,img,active_tl_ids,
+            draw_recur_lanes(self,lane.adjacent_lane_change_right.id,lanes_lines,world_to_image_space,active_tl_ids,
                                   drwaed_lanes,left_lanes,right_lanes,depth=depth+1)
         if lane.adjacent_lane_change_left.id!=b"" :
-            draw_recur_lanes(lane.adjacent_lane_change_left.id,lanes_lines,world_to_image_space,img,active_tl_ids,
+            draw_recur_lanes(self,lane.adjacent_lane_change_left.id,lanes_lines,world_to_image_space,active_tl_ids,
                                   drwaed_lanes,left_lanes,right_lanes,depth=depth+1)
 
     if added==False:
@@ -155,13 +167,10 @@ def draw_recur_lanes(self,glob_id,lanes_lines,world_to_image_space,img,active_tl
 
 
 
-
-
 def render_semantic_map(
-        self, center_in_world: np.ndarray, raster_from_world: np.ndarray, tl_faces: np.ndarray = None,
-        tl_face_color=True
-) -> th.Union[torch.Tensor, dict]:
-    
+        self, center_world: np.ndarray, world_to_image_space: np.ndarray, tl_faces: np.ndarray,ego_translation,ego_yaw,
+    ) -> np.ndarray:
+
     """Renders the semantic map at given x,y coordinates.
     Args:
         center_in_world (np.ndarray): XY of the image center in world ref system
@@ -169,6 +178,7 @@ def render_semantic_map(
     Returns:
         th.Union[torch.Tensor, dict]
     """
+    res = dict()
     raster_radius = float(np.linalg.norm(self.raster_size * self.pixel_size)) / 2
 
     # get active traffic light faces
@@ -203,8 +213,8 @@ def render_semantic_map(
                 left_funcs.append(left_func)
                 right_funcs.append(right_func)
 
-    selected_indicies=find_lanes_of_points(center_world,world_to_image_space,tl_faces,ego_translation,
-                                                img,raster_radius,active_tl_ids,lanes_lines,
+    selected_indicies=find_lanes_of_points(self,center_world,world_to_image_space,tl_faces,ego_translation,
+                                                raster_radius,active_tl_ids,lanes_lines,
                              left_funcs,right_funcs,lane_indicies,ego_yaw,used_tail)
 
     drwaed_lanes=dict()
@@ -214,7 +224,7 @@ def render_semantic_map(
     for idx in selected_indicies:
 
         curr=self.bounds_info["lanes"]["ids"][idx]
-        draw_recur_lanes(curr,lanes_lines,world_to_image_space,img,active_tl_ids,drwaed_lanes,
+        draw_recur_lanes(self,curr,lanes_lines,world_to_image_space,active_tl_ids,drwaed_lanes,
                               left_lanes,right_lanes,)
 
 
@@ -236,9 +246,10 @@ def render_semantic_map(
     if len(borders)==0:
         borders.append([[0,0],[0,0]])
 
-    return torch.cat([linear_path_to_tensor(np.array(lane), -1)  for lane in borders], 0)
+    res["path"]=torch.cat([linear_path_to_tensor(np.array(lane), -1)  for lane in borders], 0)
+    res["path_type"]=[0]*len(borders)
 
-
+    return res
 
 def rasterize_semantic(
         self,
@@ -248,20 +259,25 @@ def rasterize_semantic(
         agent: Optional[np.ndarray] = None,
         svg=False, svg_args=None,
 ):
-    if agent is None:
-        ego_translation_m = history_frames[0]["ego_translation"]
-        ego_yaw_rad = rotation33_as_yaw(history_frames[0]["ego_rotation"])
-    else:
-        ego_translation_m = np.append(agent["centroid"], history_frames[0]["ego_translation"][-1])
-        ego_yaw_rad = agent["yaw"]
+    
 
-    raster_from_world = self.render_context.raster_from_world(ego_translation_m, ego_yaw_rad)
-    world_from_raster = np.linalg.inv(raster_from_world)
+    if agent is None:
+        ego_translation = history_frames[0]["ego_translation"]
+        ego_yaw = rotation33_as_yaw(history_frames[0]["ego_rotation"])
+    else:
+        ego_translation = np.append(agent["centroid"], history_frames[0]["ego_translation"][-1])
+        ego_yaw = agent["yaw"]
+
+    world_to_image_space = world_to_image_pixels_matrix(
+        self.raster_size, self.pixel_size, ego_translation, ego_yaw, self.ego_center,
+    )
 
     # get XY of center pixel in world coordinates
-    center_in_raster_px = np.asarray(self.raster_size) * (0.5, 0.5)
-    center_in_world_m = transform_point(center_in_raster_px, world_from_raster)
-    res['path'] = self.render_semantic_map(center_in_world_m, raster_from_world, history_tl_faces[0])
+    center_pixel = np.asarray(self.raster_size) * (0.5, 0.5)
+    center_world = transform_point(center_pixel, np.linalg.inv(world_to_image_space))
+
+
+    res = render_semantic_map(self,center_world, world_to_image_space, history_tl_faces[0],ego_translation,ego_yaw,)
 
     return res
 
@@ -377,11 +393,11 @@ def get_frame(self, scene_index: int, state_index: int, track_id: Optional[int] 
         "history_positions": history_positions,
         "history_yaws": history_yaws,
         "history_availabilities": data["history_availabilities"],
-        "world_to_image": data["raster_from_world"],  # TODO deprecate
-        "raster_from_world": data["raster_from_world"],
-        "raster_from_agent": data["raster_from_agent"],
-        "agent_from_world": data["agent_from_world"],
-        "world_from_agent": data["world_from_agent"],
+#         "world_to_image": data["raster_from_world"],  # TODO deprecate
+#         "raster_from_world": data["raster_from_world"],
+#         "raster_from_agent": data["raster_from_agent"],
+#         "agent_from_world": data["agent_from_world"],
+#         "world_from_agent": data["world_from_agent"],
         "track_id": track_id,
         "timestamp": timestamp,
         "centroid": data["centroid"],

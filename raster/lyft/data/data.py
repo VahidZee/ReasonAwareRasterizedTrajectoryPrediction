@@ -221,7 +221,7 @@ class AgentDataset(torch.utils.data.Dataset):
             if arg_ == "args_rel":
                 res[arg] = torch.stack([t.get_relative_args() for t in t_list])
             if arg_ == "args":
-                res[arg] = torch.stack([t.args() for t in t_list])
+                res[arg] = torch.stack([t.args()[0:self.MAX_SEQ_LEN+2] for t in t_list])
 
         if "filling" in model_args:
             res["filling"] = torch.stack([torch.tensor(t.filling) for t in t_sep]).unsqueeze(-1)
