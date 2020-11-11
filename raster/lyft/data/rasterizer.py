@@ -107,7 +107,54 @@ def normalize_border(border,ego_translation,ego_yaw,world_to_image_space=None):
         return transform_points(border-ego_translation[:2], yaw_as_rotation33(-ego_yaw))
     return transform_points(border, world_to_image_space)
         
-    
+
+def draw_recur_lanes(self,glob_id,lanes_lines,world_to_image_space,img,active_tl_ids,drwaed_lanes,
+                     left_lanes,right_lanes,left_path=[],right_path=[],depth=0,):
+
+    drwaed_lanes[str(glob_id)]=True
+    lane = self.proto_API[glob_id].element.lane
+    # get image coords
+    lane_coords = self.proto_API.get_lane_coords(glob_id)
+
+    if str(glob_id) not in self.normalized_left_borders:
+        lane_coords = self.proto_API.get_lane_coords(glob_id)
+        self.normalized_left_borders[str(glob_id)]=self.normalize_border(lane_coords["xyz_left"][:, :2],
+                                                                         self.ego_translation,self.ego_yaw,world_to_image_space)
+        self.normalized_right_borders[str(glob_id)]=self.normalize_border(lane_coords["xyz_right"][:, :2],
+                                                                          self.ego_translation,self.ego_yaw,world_to_image_space)
+
+    xy_left=self.normalized_left_borders[str(glob_id)]
+    xy_right=self.normalized_right_borders[str(glob_id)]
+    xy_left=crop_tensor(xy_left, (224,224))
+    xy_right=crop_tensor(xy_right, (224,224))
+
+
+    tmp_left_path=left_path+xy_left.tolist()
+    tmp_right_path=right_path+xy_right.tolist()
+
+    added=False
+
+    if depth<6: 
+        for i in range(len(lane.lanes_ahead)):
+            added=True
+            self.draw_recur_lanes(lane.lanes_ahead[i].id,lanes_lines,world_to_image_space,img,active_tl_ids,drwaed_lanes,
+                                  left_lanes,right_lanes,tmp_left_path,tmp_right_path,depth=depth+1)
+
+    if depth<=0:
+        if lane.adjacent_lane_change_right.id!=b"" :
+            self.draw_recur_lanes(lane.adjacent_lane_change_right.id,lanes_lines,world_to_image_space,img,active_tl_ids,
+                                  drwaed_lanes,left_lanes,right_lanes,depth=depth+1)
+        if lane.adjacent_lane_change_left.id!=b"" :
+            self.draw_recur_lanes(lane.adjacent_lane_change_left.id,lanes_lines,world_to_image_space,img,active_tl_ids,
+                                  drwaed_lanes,left_lanes,right_lanes,depth=depth+1)
+
+    if added==False:
+        left_lanes.append(tmp_left_path)
+        right_lanes.append(tmp_right_path)
+
+
+
+
 
 
 def render_semantic_map(
