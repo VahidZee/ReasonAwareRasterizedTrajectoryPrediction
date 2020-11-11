@@ -62,7 +62,15 @@ def crop_tensor(vector, raster_size):
     return vector
 
 
-        
+def check_if_target_is_in_this_lane(self,left_func,right_func,boundry,ego_translation):
+    observation=ego_translation
+    if  not ((left_func(0))*(right_func(0))<=1 and \
+                    boundry[0][0]-1<=observation[0]<=boundry[1][0]+1 and \
+                    boundry[0][1]-1<=observation[1]<=boundry[1][1]+1 ):
+
+        return False
+    return True
+
         
 def find_lanes_of_points(self,center_world,world_to_image_space, tl_faces,ego_translation,img,raster_radius,active_tl_ids,lanes_lines,
                         left_funcs,right_funcs,lane_indicies,ego_yaw,used_tail):
@@ -78,7 +86,7 @@ def find_lanes_of_points(self,center_world,world_to_image_space, tl_faces,ego_tr
 
             boundry=self.bounds_info["lanes"]["bounds"][idx]
 
-            if self.check_if_target_is_in_this_lane(left_func,right_func,boundry,ego_translation) :
+            if check_if_target_is_in_this_lane(left_func,right_func,boundry,ego_translation) :
 #                 self.check_if_target_is_alligned_with_lane(lane_coords["xyz_left"][:, :2],ego_translation,ego_yaw):
 
 #                     start=self.find_end_point_of_the_lane(lane_coords["xyz_left"][:, :2],ego_translation,ego_yaw)
