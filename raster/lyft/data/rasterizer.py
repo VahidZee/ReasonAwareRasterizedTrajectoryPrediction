@@ -62,10 +62,22 @@ def crop_tensor(vector, raster_size):
     return vector
 
 
+
+
+def normalize_border(border,ego_translation,ego_yaw,world_to_image_space=None):
+#       
+    if  world_to_image_space is None:
+        return transform_points(border-ego_translation[:2], yaw_as_rotation33(-ego_yaw))
+    return transform_points(border, world_to_image_space)
+        
+    
+
+
 def render_semantic_map(
         self, center_in_world: np.ndarray, raster_from_world: np.ndarray, tl_faces: np.ndarray = None,
         tl_face_color=True
 ) -> th.Union[torch.Tensor, dict]:
+    
     """Renders the semantic map at given x,y coordinates.
     Args:
         center_in_world (np.ndarray): XY of the image center in world ref system
@@ -73,43 +85,75 @@ def render_semantic_map(
     Returns:
         th.Union[torch.Tensor, dict]
     """
-    # filter using half a radius from the center
     raster_radius = float(np.linalg.norm(self.raster_size * self.pixel_size)) / 2
 
     # get active traffic light faces
-    if tl_face_color:
-        active_tl_ids = set(filter_tl_faces_by_status(tl_faces, "ACTIVE")["face_id"].tolist())
+    active_tl_ids = set(filter_tl_faces_by_status(tl_faces, "ACTIVE")["face_id"].tolist())
+    # plot lanes
+    lanes_lines = defaultdict(list)
+    left_funcs=[]
+    right_funcs=[]   
+    lane_indicies=[]  
+    continued_lane=[]
+    used_tail=dict()
+    self.normalized_left_borders=dict()
+    self.normalized_right_borders=dict()
+    self.ego_translation=ego_translation
+    self.ego_yaw=ego_yaw
+    for idx in elements_within_bounds(center_world, self.bounds_info["lanes"]["bounds"], raster_radius):
+            lane = self.proto_API[self.bounds_info["lanes"]["ids"][idx]].element.lane
+            # get image coords
+            lane_coords = self.proto_API.get_lane_coords(self.bounds_info["lanes"]["ids"][idx])
+            with warnings.catch_warnings():
+                warnings.simplefilter('ignore', np.RankWarning)
+                normalized_left=normalize_border(lane_coords["xyz_left"][:, :2],ego_translation,ego_yaw)
+                normalized_right=normalize_border(lane_coords["xyz_right"][:, :2],ego_translation,ego_yaw)
+                glob_id=str(self.bounds_info["lanes"]["ids"][idx])
+                left_func = np.poly1d(np.polyfit(normalized_left[:, 0], normalized_left[:, 1], 3))
+                right_func = np.poly1d(np.polyfit(normalized_right[:, 0], normalized_right[:, 1], 3))
+                normalized_left=normalize_border(lane_coords["xyz_left"][:, :2],ego_translation,ego_yaw,world_to_image_space)
+                normalized_right=normalize_border(lane_coords["xyz_right"][:, :2],ego_translation,ego_yaw,world_to_image_space)
+                self.normalized_left_borders[glob_id]=normalized_left
+                self.normalized_right_borders[glob_id]=normalized_right
+                lane_indicies.append(idx)
+                left_funcs.append(left_func)
+                right_funcs.append(right_func)
 
-    # setup canvas
-    raster_size = self.render_context.raster_size_px
-    res = dict(path=list(), path_type=list())
-    for idx in elements_within_bounds(center_in_world, self.bounds_info["lanes"]["bounds"], raster_radius):
-        lane = self.proto_API[self.bounds_info["lanes"]["ids"][idx]].element.lane
+    selected_indicies=self.find_lanes_of_points(center_world,world_to_image_space,tl_faces,ego_translation,
+                                                img,raster_radius,active_tl_ids,lanes_lines,
+                             left_funcs,right_funcs,lane_indicies,ego_yaw,used_tail)
 
-        # get image coords
-        lane_coords = self.proto_API.get_lane_coords(self.bounds_info["lanes"]["ids"][idx])
-        xy_left = cv2_subpixel(transform_points(lane_coords["xyz_left"][:, :2], raster_from_world))
-        xy_right = cv2_subpixel(transform_points(lane_coords["xyz_right"][:, :2], raster_from_world))
-        xy_left = normalize_line(xy_left)
-        xy_right = normalize_line(xy_right)
+    drwaed_lanes=dict()
+    left_lanes=[]
+    right_lanes=[]
 
-        lane_type = "black"  # no traffic light face is controlling this lane
-        if tl_face_color:
-            lane_tl_ids = set([MapAPI.id_as_str(la_tc) for la_tc in lane.traffic_controls])
-            for tl_id in lane_tl_ids.intersection(active_tl_ids):
-                if self.proto_API.is_traffic_face_colour(tl_id, "red"):
-                    lane_type = "red"
-                elif self.proto_API.is_traffic_face_colour(tl_id, "green"):
-                    lane_type = "green"
-                elif self.proto_API.is_traffic_face_colour(tl_id, "yellow"):
-                    lane_type = "yellow"
+    for idx in selected_indicies:
 
-        for vector in [xy_left, xy_right]:
-            vector = crop_tensor(vector, raster_size)
-            if len(vector):
-                res['path'].append(vector)
-                res['path_type'].append(path_type_to_number(lane_type))
-    return res
+        curr=self.bounds_info["lanes"]["ids"][idx]
+        self.draw_recur_lanes(curr,lanes_lines,world_to_image_space,img,active_tl_ids,drwaed_lanes,
+                              left_lanes,right_lanes,)
+
+
+    final_lane=np.zeros((MAX_LANE_NUM,MAX_LANE_SIZE,2))
+    final_lane_size=np.zeros((MAX_LANE_NUM,1))
+    final_lane_num=0
+    borders=[]
+    for i in range(len(left_lanes)):
+        if final_lane_num>=MAX_LANE_NUM:break
+        if len(left_lanes[i])!=0: 
+            borders.append(left_lanes[i])
+            final_lane[final_lane_num],final_lane_size[final_lane_num]=zero_point_extend(left_lanes[i])
+            final_lane_num+=1
+        if len(right_lanes[i])!=0:
+            borders.append(right_lanes[i])
+            final_lane[final_lane_num],final_lane_size[final_lane_num]=zero_point_extend(right_lanes[i])
+            final_lane_num+=1
+
+    if len(borders)==0:
+        borders.append([[0,0],[0,0]])
+
+    return torch.cat([linear_path_to_tensor(np.array(lane), -1)  for lane in borders], 0)
+
 
 
 def rasterize_semantic(
@@ -133,12 +177,8 @@ def rasterize_semantic(
     # get XY of center pixel in world coordinates
     center_in_raster_px = np.asarray(self.raster_size) * (0.5, 0.5)
     center_in_world_m = transform_point(center_in_raster_px, world_from_raster)
-    res = self.render_semantic_map(center_in_world_m, raster_from_world, history_tl_faces[0])
+    res['path'] = self.render_semantic_map(center_in_world_m, raster_from_world, history_tl_faces[0])
 
-    svg_args = svg_args or dict()
-    if svg:
-        res['path'] = torch.cat(
-            [linear_path_to_tensor(path, svg_args.get('pad_val', -1)) for path in res['path']], 0)
     return res
 
 
