@@ -137,15 +137,15 @@ def draw_recur_lanes(self,glob_id,lanes_lines,world_to_image_space,img,active_tl
     if depth<6: 
         for i in range(len(lane.lanes_ahead)):
             added=True
-            self.draw_recur_lanes(lane.lanes_ahead[i].id,lanes_lines,world_to_image_space,img,active_tl_ids,drwaed_lanes,
+            draw_recur_lanes(lane.lanes_ahead[i].id,lanes_lines,world_to_image_space,img,active_tl_ids,drwaed_lanes,
                                   left_lanes,right_lanes,tmp_left_path,tmp_right_path,depth=depth+1)
 
     if depth<=0:
         if lane.adjacent_lane_change_right.id!=b"" :
-            self.draw_recur_lanes(lane.adjacent_lane_change_right.id,lanes_lines,world_to_image_space,img,active_tl_ids,
+            draw_recur_lanes(lane.adjacent_lane_change_right.id,lanes_lines,world_to_image_space,img,active_tl_ids,
                                   drwaed_lanes,left_lanes,right_lanes,depth=depth+1)
         if lane.adjacent_lane_change_left.id!=b"" :
-            self.draw_recur_lanes(lane.adjacent_lane_change_left.id,lanes_lines,world_to_image_space,img,active_tl_ids,
+            draw_recur_lanes(lane.adjacent_lane_change_left.id,lanes_lines,world_to_image_space,img,active_tl_ids,
                                   drwaed_lanes,left_lanes,right_lanes,depth=depth+1)
 
     if added==False:
@@ -214,7 +214,7 @@ def render_semantic_map(
     for idx in selected_indicies:
 
         curr=self.bounds_info["lanes"]["ids"][idx]
-        self.draw_recur_lanes(curr,lanes_lines,world_to_image_space,img,active_tl_ids,drwaed_lanes,
+        draw_recur_lanes(curr,lanes_lines,world_to_image_space,img,active_tl_ids,drwaed_lanes,
                               left_lanes,right_lanes,)
 
 
