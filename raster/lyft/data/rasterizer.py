@@ -62,6 +62,35 @@ def crop_tensor(vector, raster_size):
     return vector
 
 
+        
+        
+def find_lanes_of_points(self,center_world,world_to_image_space, tl_faces,ego_translation,img,raster_radius,active_tl_ids,lanes_lines,
+                        left_funcs,right_funcs,lane_indicies,ego_yaw,used_tail):
+    selected_indicies=[]
+    for i in range(len(lane_indicies)):
+            idx=lane_indicies[i]
+            lane = self.proto_API[self.bounds_info["lanes"]["ids"][idx]].element.lane
+
+            # get image coords
+            lane_coords = self.proto_API.get_lane_coords(self.bounds_info["lanes"]["ids"][idx])
+            left_func=left_funcs[i]
+            right_func=right_funcs[i]
+
+            boundry=self.bounds_info["lanes"]["bounds"][idx]
+
+            if self.check_if_target_is_in_this_lane(left_func,right_func,boundry,ego_translation) :
+#                 self.check_if_target_is_alligned_with_lane(lane_coords["xyz_left"][:, :2],ego_translation,ego_yaw):
+
+#                     start=self.find_end_point_of_the_lane(lane_coords["xyz_left"][:, :2],ego_translation,ego_yaw)
+                used_tail[idx]=0
+
+
+
+                selected_indicies.append(idx)
+
+
+    return selected_indicies
+
 
 
 def normalize_border(border,ego_translation,ego_yaw,world_to_image_space=None):
@@ -119,7 +148,7 @@ def render_semantic_map(
                 left_funcs.append(left_func)
                 right_funcs.append(right_func)
 
-    selected_indicies=self.find_lanes_of_points(center_world,world_to_image_space,tl_faces,ego_translation,
+    selected_indicies=find_lanes_of_points(center_world,world_to_image_space,tl_faces,ego_translation,
                                                 img,raster_radius,active_tl_ids,lanes_lines,
                              left_funcs,right_funcs,lane_indicies,ego_yaw,used_tail)
 
