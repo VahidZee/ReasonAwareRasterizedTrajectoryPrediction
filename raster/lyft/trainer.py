@@ -136,51 +136,20 @@ class LyftTrainerModule(pl.LightningModule, ABC):
         res = dict()
         perf_attack = self.hparams.pgd_iters and attack
         reg_pgd = perf_attack and self.hparams.pgd_reg_factor
-        if perf_attack:
-            adv_inputs, init_loss, final_loss = self.pgd_attack(
-                inputs, targets, target_availabilities, return_loss=True)
-            if not self.hparams.pgd_reg_factor:
-                inputs = adv_inputs
-            res['adv/init_loss'] = init_loss
-            res['adv/final_loss'] = final_loss
         ##added
         model_args = [inputs[arg]for arg in self.hparams.model_config.model_args]
         entery = [*model_args, {}, True]
         # inputs.requires_grad = bool(self.hparams.saliency_factor) or self.track_grad
         pred, conf = self.model(entery)
         nll = neg_multi_log_likelihood(targets, pred, conf, target_availabilities)
-        if (self.hparams.saliency_factor or self.track_grad) and grad_enabled:
-            grads = torch.autograd.grad(
-                nll.unbind(), inputs, create_graph=bool(self.hparams.saliency_factor), retain_graph=True)[0]
-            axis = [1, 2, 3] if return_trajectory else [0, 1, 2, 3]
-            res['grads/semantics'] = grads.data[:, -3:].abs().sum(axis=axis)
-            res['grads/vehicles'] = grads.data[:, :-3].abs().sum(axis=axis)
-            res['grads/total'] = res['grads/semantics'] + res['grads/vehicles']
         if return_trajectory:
             res['nll'] = nll
         else:
             res['nll'] = nll.mean()
-        if reg_pgd:
-            adv_nll = neg_multi_log_likelihood(pred.detach() if self.hparams.pgd_mode == 'negative_sample' else targets,
-                                               *self.model(adv_inputs), target_availabilities)
-            res['adv/nll'] = adv_nll.mean()
-        if self.hparams.saliency_factor and grad_enabled:
-            sal_res = self.saliency(grads)
-            if not reg_pgd:
-                loss = (1 - sal_res) * self.hparams.saliency_factor * nll.detach() + nll
-            else:
-                loss = ((1 - sal_res) * self.hparams.saliency_factor * nll.detach() + nll
-                        + self.hparams.pgd_reg_factor * adv_nll)
-            if return_trajectory:
-                res['saliency'] = sal_res
-            else:
-                res['saliency'] = sal_res.mean()
-        else:
-            loss = nll if not reg_pgd else (nll + self.hparams.pgd_reg_factor * adv_nll)
         if return_trajectory:
-            res['loss'] = loss
+            res['loss'] = nll
         else:
-            res['loss'] = loss.mean()
+            res['loss'] = nll.mean()
         if return_trajectory:
             agents_coords = pred.cpu().detach().numpy().copy()
             world_from_agents = world_from_agent.cpu().numpy()
@@ -198,7 +167,7 @@ class LyftTrainerModule(pl.LightningModule, ABC):
         return res['loss']
 
     def on_train_batch_start(self, batch, batch_idx: int, dataloader_idx: int):
-        print(batch['valid'])
+#         print(batch['valid'])
         batch['image']['commands'] = batch['image']['commands'][batch['valid']]
         if len(batch['image']['commands']) == 0:
             return -1
@@ -211,7 +180,7 @@ class LyftTrainerModule(pl.LightningModule, ABC):
         return
 
     def step(self, batch, batch_idx, optimizer_idx=None, name='train'):
-        print(batch['valid'])
+#         print(batch['valid'])
         is_val = name == 'val'
         is_test = name == 'test'
         if self.global_step == 0:

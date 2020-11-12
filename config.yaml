@@ -44,16 +44,16 @@ raster_params:
 ###################
 ## Data loader options
 train_dataloader:
-  split: "scenes/sample.zarr"
-  batch_size: 2
+  split: "scenes/train_full.zarr"
+  batch_size: 32
   shuffle: True
-  num_workers: 0
+  num_workers: 20
 
 val_dataloader:
-  split: "scenes/sample.zarr"
-  batch_size: 2
+  split: "scenes/validate.zarr"
+  batch_size: 16
   shuffle: False
-  num_workers: 0
+  num_workers: 20
 
 test_dataloader:
   split: "scenes/sample.zarr"

@@ -3,7 +3,7 @@ import typing as th
 from l5kit.data.filter import filter_tl_faces_by_status, filter_agents_by_track_id, filter_agents_by_labels
 from l5kit.data.map_api import MapAPI
 from l5kit.data import get_frames_slice_from_scenes
-from l5kit.geometry import rotation33_as_yaw, transform_point, transform_points, yaw_as_rotation33,world_to_image_pixels_matrix
+from l5kit.geometry import rotation33_as_yaw, transform_point, transform_points, yaw_as_rotation33
 from l5kit.rasterization.semantic_rasterizer import elements_within_bounds, cv2_subpixel
 from l5kit.rasterization.box_rasterizer import get_ego_as_agent
 from typing import List, Optional
@@ -13,6 +13,7 @@ import torch
 import cv2
 from collections import defaultdict
 from .utils import linear_path_to_tensor
+from typing import List, Optional, Tuple
 
 CV2_SHIFT = 8
 CV2_SHIFT_VALUE = 2 ** CV2_SHIFT
@@ -64,6 +65,38 @@ def lane_color(path_number):
         return 'blue'
     if path_number == EGO_TYPE:
         return 'cyan'
+
+
+def world_to_image_pixels_matrix(
+    image_shape: Tuple[int, int],
+    pixel_size_m: np.ndarray,
+    ego_translation_m: np.ndarray,
+    ego_yaw_rad: Optional[float] = None,
+    ego_center_in_image_ratio: Optional[np.ndarray] = None,
+) -> np.ndarray:
+
+    # Translate world to ego by applying the negative ego translation.
+    world_to_ego_in_2d = np.eye(3, dtype=np.float32)
+    world_to_ego_in_2d[0:2, 2] = -ego_translation_m[0:2]
+
+    if ego_yaw_rad is not None:
+        # Rotate counter-clockwise by negative yaw to align world such that ego faces right.
+        world_to_ego_in_2d = yaw_as_rotation33(-ego_yaw_rad) @ world_to_ego_in_2d
+
+    # Scale the meters to pixels.
+    world_to_image_scale = np.eye(3)
+    world_to_image_scale[0, 0] = 1.0 / pixel_size_m[0]
+    world_to_image_scale[1, 1] = 1.0 / pixel_size_m[1]
+
+    # Move so that it is aligned to the defined image center.
+    if ego_center_in_image_ratio is None:
+        ego_center_in_image_ratio = np.array([0.5, 0.5])
+    ego_center_in_pixels = ego_center_in_image_ratio * image_shape
+    image_to_ego_center = np.eye(3)
+    image_to_ego_center[0:2, 2] = ego_center_in_pixels
+
+    # Construct the whole transform and return it.
+    return image_to_ego_center @ world_to_image_scale @ world_to_ego_in_2d
 
 
 def crop_tensor(vector, raster_size):
@@ -238,13 +271,14 @@ def render_semantic_map(
             borders.append(left_lanes[i])
             final_lane[final_lane_num],final_lane_size[final_lane_num]=zero_point_extend(left_lanes[i])
             final_lane_num+=1
+        if final_lane_num>=MAX_LANE_NUM:break
         if len(right_lanes[i])!=0:
             borders.append(right_lanes[i])
             final_lane[final_lane_num],final_lane_size[final_lane_num]=zero_point_extend(right_lanes[i])
             final_lane_num+=1
 
     if len(borders)==0:
-        borders.append([[0,0],[0,0]])
+        borders.append([[0,0],[0,12],[0,24]])
 
     res["path"]=torch.cat([linear_path_to_tensor(np.array(lane), -1)  for lane in borders], 0)
     res["path_type"]=[0]*len(borders)
@@ -393,11 +427,11 @@ def get_frame(self, scene_index: int, state_index: int, track_id: Optional[int] 
         "history_positions": history_positions,
         "history_yaws": history_yaws,
         "history_availabilities": data["history_availabilities"],
-#         "world_to_image": data["raster_from_world"],  # TODO deprecate
-#         "raster_from_world": data["raster_from_world"],
-#         "raster_from_agent": data["raster_from_agent"],
-#         "agent_from_world": data["agent_from_world"],
-#         "world_from_agent": data["world_from_agent"],
+        "world_to_image": data["raster_from_world"],  # TODO deprecate
+        "raster_from_world": data["raster_from_world"],
+        "raster_from_agent": data["raster_from_agent"],
+        "agent_from_world": data["agent_from_world"],
+        "world_from_agent": data["world_from_agent"],
         "track_id": track_id,
         "timestamp": timestamp,
         "centroid": data["centroid"],

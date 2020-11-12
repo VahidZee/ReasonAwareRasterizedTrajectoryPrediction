@@ -158,6 +158,7 @@ class LyftDataModule(LightningDataModule):
 
             if self.train_idxs is not None:
                 train_data = Subset(train_data, self.train_idxs)
+            
             if self.val_split is None or self.val_split == self.train_split:
                 tl = len(train_data)
                 vl = int(tl * self.val_proportion)
@@ -171,6 +172,7 @@ class LyftDataModule(LightningDataModule):
                                              max_seq_len=self.model_config.max_seq_len)
                 if self.val_idxs is not None:
                     self.val_data = Subset(self.val_data, self.val_idxs)
+                
             if self.raster_cache_size:
                 self.train_data = CachedDataset(self.train_data, self.raster_cache_size)
                 self.val_data = CachedDataset(self.val_data, self.raster_cache_size)
